@@ -11,22 +11,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
-    // Here we define an executable. An executable needs to have a root module
-    // which needs to expose a `main` function. While we could add a main function
-    // to the module defined above, it's sometimes preferable to split business
-    // business logic and the CLI into two separate modules.
-    //
-    // If your goal is to create a Zig library for others to use, consider if
-    // it might benefit from also exposing a CLI tool. A parser library for a
-    // data serialization format could also bundle a CLI syntax checker, for example.
-    //
-    // If instead your goal is to create an executable, consider if users might
-    // be interested in also being able to embed the core functionality of your
-    // program in their own executable in order to avoid the overhead involved in
-    // subprocessing your CLI tool.
-    //
-    // If neither case applies to you, feel free to delete the declaration you
-    // don't need and to put everything under a single module.
     const exe = b.addExecutable(.{
         .name = "regex_zig",
         .root_module = b.createModule(.{
@@ -54,6 +38,18 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
+
+    // This is where build-on-save check step begins.
+    const exe_check = b.addExecutable(.{
+        .name = "regex",
+        .root_module = mod,
+    });
+    // There is no `b.installArtifact(exe_check);` here.
+
+    // Finally we add the "check" step which will be detected
+    // by ZLS and automatically enable Build-On-Save.
+    const check = b.step("check", "Check if zlox compiles");
+    check.dependOn(&exe_check.step);
 
     // Test step for both mod and exe
     const mod_tests = b.addTest(.{

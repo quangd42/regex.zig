@@ -6,12 +6,12 @@ const ArrayList = std.ArrayList;
 
 pub const Node = union(enum) {
     literal: Literal,
-    dot,
+    // dot,
     class_perl: ClassPerl,
     // group,
-    alternation: Alternation,
+    // alternation: Alternation,
     concat: Concat,
-    assertion: Assertion,
+    // assertion: Assertion,
 
     pub fn format(
         self: @This(),
@@ -19,7 +19,7 @@ pub const Node = union(enum) {
     ) std.Io.Writer.Error!void {
         switch (self) {
             .literal => |l| try writer.printAsciiChar(l.c, .{}),
-            .dot => try writer.printAsciiChar('.', .{}),
+            // .dot => try writer.printAsciiChar('.', .{}),
             .class_perl => |cl| {
                 const char: u8 = switch (cl.kind) {
                     .digit => if (cl.negated) 'D' else 'd',
@@ -28,36 +28,29 @@ pub const Node = union(enum) {
                 };
                 try writer.print("\\{c}", .{char});
             },
-            .alternation => |a| {
-                for (a.data.items, 0..) |alt, i| {
-                    if (i != 0) try writer.printAsciiChar('|', .{});
-                    try writer.print("{f}", .{alt});
-                }
-            },
+            // .alternation => |a| {
+            //     for (a.data.items, 0..) |alt, i| {
+            //         if (i != 0) try writer.printAsciiChar('|', .{});
+            //         try writer.print("{f}", .{alt});
+            //     }
+            // },
             .concat => |c| {
-                for (c.data.items) |alt| {
+                for (c.nodes) |alt| {
                     try writer.print("{f}", .{alt});
                 }
             },
-            .assertion => |a| {
-                switch (a.kind) {
-                    .start_line_or_string => try writer.printAsciiChar('^', .{}),
-                    .end_line_or_string => try writer.printAsciiChar('$', .{}),
-                }
-            },
+            // .assertion => |a| {
+            //     switch (a.kind) {
+            //         .start_line_or_string => try writer.printAsciiChar('^', .{}),
+            //         .end_line_or_string => try writer.printAsciiChar('$', .{}),
+            //     }
+            // },
         }
     }
 };
 
 pub const Literal = struct {
     c: u8,
-    kind: Kind,
-
-    const Kind = enum {
-        verbatim,
-        meta,
-        special,
-    };
 };
 
 pub const ClassPerl = struct {
@@ -71,22 +64,22 @@ pub const ClassPerl = struct {
     };
 };
 
-pub const Alternation = struct {
-    data: ArrayList(Node),
-};
-
+// pub const Alternation = struct {
+//     data: ArrayList(Node),
+// };
+//
 pub const Concat = struct {
-    data: ArrayList(Node),
+    nodes: []Node,
 };
-
-pub const Assertion = struct {
-    kind: Kind,
-
-    const Kind = enum {
-        start_line_or_string,
-        end_line_or_string,
-    };
-};
+//
+// pub const Assertion = struct {
+//     kind: Kind,
+//
+//     const Kind = enum {
+//         start_line_or_string,
+//         end_line_or_string,
+//     };
+// };
 
 pub const Error = error{
     UnsupportedEscape,

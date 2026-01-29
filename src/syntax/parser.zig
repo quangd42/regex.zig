@@ -5,6 +5,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
 
 const Ast = @import("ast.zig");
+const Node = Ast.Node;
 const Error = Ast.Error;
 
 const assert = std.debug.assert;
@@ -33,11 +34,11 @@ fn isEnd(p: *Parser) bool {
     return p.offset >= p.pattern.len;
 }
 
-fn char(p: *Parser) u8 {
+inline fn char(p: *Parser) u8 {
     return p.pattern[p.offset];
 }
 
-fn eat(p: *Parser) void {
+inline fn eat(p: *Parser) void {
     p.offset += 1;
 }
 
@@ -46,56 +47,57 @@ fn peek(p: *Parser) ?u8 {
     return p.pattern[p.offset + 1];
 }
 
+//
 // parser funcs
+//
 
-pub fn parse(p: *Parser) !Ast.Node {
-    var concat: Ast.Concat = .{ .data = .empty };
+/// Parser entry method
+pub fn parse(p: *Parser) !Node {
+    var concat: ArrayList(Node) = .empty;
     const a = p.arena.allocator();
 
     while (!p.isEnd()) {
         switch (p.char()) {
-            else => try concat.data.append(a, try p.parseAtom()),
+            else => try concat.append(a, try p.parseAtom()),
         }
     }
-    return .{ .concat = concat };
+    return .{ .concat = .{ .nodes = try concat.toOwnedSlice(a) } };
 }
 
-fn parseEscape(p: *Parser) !Ast.Node {
+fn parseEscape(p: *Parser) !Node {
     assert(p.char() == '\\');
     p.eat();
 
-    defer p.eat();
-    return switch (p.char()) {
+    const out: Node = switch (p.char()) {
         'd' => .{ .class_perl = .{ .kind = .digit, .negated = false } },
         'D' => .{ .class_perl = .{ .kind = .digit, .negated = true } },
         'w' => .{ .class_perl = .{ .kind = .word, .negated = false } },
         'W' => .{ .class_perl = .{ .kind = .word, .negated = true } },
         's' => .{ .class_perl = .{ .kind = .space, .negated = false } },
         'S' => .{ .class_perl = .{ .kind = .space, .negated = true } },
-        else => error.UnsupportedEscape,
+        else => return error.UnsupportedEscape,
     };
+    p.eat();
+    return out;
 }
 
-fn parseAtom(p: *Parser) Error!Ast.Node {
+fn parseAtom(p: *Parser) Error!Node {
     switch (p.char()) {
         '\\' => return p.parseEscape(),
         else => |c| {
             p.eat();
-            return .{ .literal = .{
-                .kind = .verbatim,
-                .c = c,
-            } };
+            return .{ .literal = .{ .c = c } };
         },
     }
 }
 
 const testing = std.testing;
 
-test "parser" {
+test "parse atom" {
     const gpa = testing.allocator;
 
     const pattern = "ab.\\d\\D\\w\\W\\s\\S";
-    var parser = Parser.init(gpa, pattern);
+    var parser: Parser = .init(gpa, pattern);
     defer parser.deinit();
     const ast = try parser.parse();
     const out = try std.fmt.allocPrint(gpa, "{f}", .{ast});
