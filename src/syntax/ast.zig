@@ -8,8 +8,8 @@ pub const Node = union(enum) {
     literal: Literal,
     // dot,
     class_perl: ClassPerl,
-    // group,
-    // alternation: Alternation,
+    group: Group,
+    alternation: Alternation,
     concat: Concat,
     // assertion: Assertion,
 
@@ -28,15 +28,32 @@ pub const Node = union(enum) {
                 };
                 try writer.print("\\{c}", .{char});
             },
-            // .alternation => |a| {
-            //     for (a.data.items, 0..) |alt, i| {
-            //         if (i != 0) try writer.printAsciiChar('|', .{});
-            //         try writer.print("{f}", .{alt});
-            //     }
-            // },
+            .group => |gr| {
+                try writer.printAsciiChar('(', .{});
+                switch (gr) {
+                    .concat => |concat| {
+                        for (concat.nodes) |node| {
+                            try writer.print("{f}", .{node});
+                        }
+                    },
+                    .alt => |alt| {
+                        for (alt.nodes, 0..) |node, i| {
+                            if (i != 0) try writer.printAsciiChar('|', .{});
+                            try writer.print("{f}", .{node});
+                        }
+                    },
+                }
+                try writer.printAsciiChar(')', .{});
+            },
+            .alternation => |a| {
+                for (a.nodes, 0..) |node, i| {
+                    if (i != 0) try writer.printAsciiChar('|', .{});
+                    try writer.print("{f}", .{node});
+                }
+            },
             .concat => |c| {
-                for (c.nodes) |alt| {
-                    try writer.print("{f}", .{alt});
+                for (c.nodes) |node| {
+                    try writer.print("{f}", .{node});
                 }
             },
             // .assertion => |a| {
@@ -64,12 +81,17 @@ pub const ClassPerl = struct {
     };
 };
 
-// pub const Alternation = struct {
-//     data: ArrayList(Node),
-// };
-//
+pub const Group = union(enum) {
+    concat: Concat,
+    alt: Alternation,
+};
+
+pub const Alternation = struct {
+    nodes: []const Node,
+};
+
 pub const Concat = struct {
-    nodes: []Node,
+    nodes: []const Node,
 };
 //
 // pub const Assertion = struct {
@@ -80,7 +102,3 @@ pub const Concat = struct {
 //         end_line_or_string,
 //     };
 // };
-
-pub const Error = error{
-    UnsupportedEscape,
-};
