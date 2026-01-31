@@ -6,7 +6,7 @@ const ArrayList = std.ArrayList;
 
 const Ast = @import("ast.zig");
 const Node = Ast.Node;
-const NodeList = ArrayList(Node);
+const NodeList = ArrayList(Node.Index);
 
 const assert = std.debug.assert;
 
@@ -15,6 +15,7 @@ pub const Error = error{
     TrailingBackslash, // Escape at EOF
     UnexpectedParen, // Closing nonexistent group
     MissingParen, // Group not closed
+    OutOfMemory,
 };
 
 const Parser = @This();
@@ -22,6 +23,8 @@ arena: ArenaAllocator,
 
 pattern: []const u8,
 offset: usize,
+
+nodes: ArrayList(Node) = .empty,
 
 group_stack: ArrayList(union(enum) {
     concat: *NodeList, // The in-progress concat before group is opened
@@ -64,7 +67,7 @@ fn peek(p: *Parser) ?u8 {
 //
 
 /// Parser entry method
-pub fn parse(p: *Parser) !Node {
+pub fn parse(p: *Parser) !Ast {
     var concat = try p.createNodeList();
     const a = p.arena.allocator();
 
@@ -76,7 +79,9 @@ pub fn parse(p: *Parser) !Node {
             else => try concat.append(a, try p.parseAtom()),
         }
     }
-    return p.popGroupAtEnd(concat);
+    try p.popGroupAtEnd(concat);
+
+    return .{ .nodes = try p.nodes.toOwnedSlice(a) };
 }
 
 fn createNodeList(p: *Parser) !*NodeList {
@@ -84,6 +89,11 @@ fn createNodeList(p: *Parser) !*NodeList {
     const new_concat = try a.create(NodeList);
     new_concat.* = .empty;
     return new_concat;
+}
+
+fn addNode(p: *Parser, node: Node) !Node.Index {
+    try p.nodes.append(p.arena.allocator(), node);
+    return @intCast(p.nodes.items.len - 1);
 }
 
 fn pushAlt(p: *Parser, cur_concat: *NodeList) !*NodeList {
@@ -96,7 +106,8 @@ fn pushAlt(p: *Parser, cur_concat: *NodeList) !*NodeList {
             .alt => |alt| {
                 // there is an existing alternation builder
                 // remember to convert concat builder to Node to store in alternation builder!
-                try alt.append(a, .{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
+                const concat_index = try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
+                try alt.append(a, concat_index);
                 return p.createNodeList();
             },
             else => {},
@@ -105,7 +116,8 @@ fn pushAlt(p: *Parser, cur_concat: *NodeList) !*NodeList {
     // stack is empty or stack top is not an alternation builder, so add a new one
     // remember to convert concat builder to Node to store in alternation builder!
     const new_alt = try p.createNodeList();
-    try new_alt.append(a, .{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
+    const concat_index = try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
+    try new_alt.append(a, concat_index);
     try p.group_stack.append(a, .{ .alt = new_alt });
     return p.createNodeList();
 }
@@ -127,16 +139,19 @@ fn popGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
     switch (prev_group_state) {
         .concat => |prev_concat| {
             // cur_concat contains the content of the Group node
-            try prev_concat.append(a, .{ .group = .{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } } });
+            const concat_index = try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
+            const group_index = try p.addNode(.{ .group = .{ .node = concat_index } });
+            try prev_concat.append(a, group_index);
             return prev_concat;
         },
         .alt => |alt| {
             // cur_concat is the else branch of last alternation, pop stack once more to find prev_concat
-            try alt.append(a, .{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
+            try alt.append(a, try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } }));
             const prev_prev_group_state = p.group_stack.pop() orelse return error.UnexpectedParen;
             switch (prev_prev_group_state) {
                 .concat => |prev_concat| {
-                    try prev_concat.append(a, .{ .group = .{ .alt = .{ .nodes = try alt.toOwnedSlice(a) } } });
+                    const alt_index = try p.addNode(.{ .alternation = .{ .nodes = try alt.toOwnedSlice(a) } });
+                    try prev_concat.append(a, try p.addNode(.{ .group = .{ .node = alt_index } }));
                     return prev_concat;
                 },
                 .alt => {
@@ -151,27 +166,30 @@ fn popGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
 /// This is called when the parser has reached the end. There are only two valid scenarios:
 /// either the stack is empty or there is only one alternation builder on the stack.
 /// Otherwise an error is returned.
-fn popGroupAtEnd(p: *Parser, cur_concat: *NodeList) !Node {
+fn popGroupAtEnd(p: *Parser, cur_concat: *NodeList) !void {
     if (p.group_stack.items.len > 1) {
         return error.MissingParen;
     }
     const a = p.arena.allocator();
 
     // valid: nothing on the stack, return the final concat node
-    const prev_group_state = p.group_stack.pop() orelse
-        return .{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } };
+    const prev_group_state = p.group_stack.pop() orelse {
+        _ = try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
+        return;
+    };
 
     switch (prev_group_state) {
         .concat => return error.MissingParen,
         .alt => |alt| {
             // valid: return the final alt node
-            try alt.append(a, .{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
-            return .{ .alternation = .{ .nodes = try alt.toOwnedSlice(a) } };
+            const concat_index = try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
+            try alt.append(a, concat_index);
+            _ = try p.addNode(.{ .alternation = .{ .nodes = try alt.toOwnedSlice(a) } });
         },
     }
 }
 
-fn parseEscape(p: *Parser) !Node {
+fn parseEscape(p: *Parser) !Node.Index {
     assert(p.char() == '\\');
     p.eat();
 
@@ -186,15 +204,15 @@ fn parseEscape(p: *Parser) !Node {
         else => return error.InvalidEscape,
     };
     p.eat();
-    return out;
+    return p.addNode(out);
 }
 
-fn parseAtom(p: *Parser) Error!Node {
+fn parseAtom(p: *Parser) Error!Node.Index {
     switch (p.char()) {
         '\\' => return p.parseEscape(),
         else => |c| {
             p.eat();
-            return .{ .literal = .{ .c = c } };
+            return p.addNode(.{ .literal = .{ .c = c } });
         },
     }
 }
