@@ -17,7 +17,7 @@ pub const Node = union(enum) {
     pub const Index = u32;
 
     pub const Literal = struct {
-        c: u8,
+        char: u8,
     };
 
     pub const ClassPerl = struct {
@@ -57,7 +57,7 @@ pub fn format(
 fn formatNode(self: @This(), writer: *std.Io.Writer, index: Node.Index) std.Io.Writer.Error!void {
     const node = self.nodes[@intCast(index)];
     switch (node) {
-        .literal => |l| try writer.printAsciiChar(l.c, .{}),
+        .literal => |l| try writer.printAsciiChar(l.char, .{}),
         // .dot => try writer.printAsciiChar('.', .{}),
         .class_perl => |cl| {
             const char: u8 = switch (cl.kind) {

@@ -4,7 +4,7 @@ const Allocator = mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
 
-const Ast = @import("ast.zig");
+const Ast = @import("Ast.zig");
 const Node = Ast.Node;
 const NodeList = ArrayList(Node.Index);
 
@@ -212,7 +212,7 @@ fn parseAtom(p: *Parser) Error!Node.Index {
         '\\' => return p.parseEscape(),
         else => |c| {
             p.eat();
-            return p.addNode(.{ .literal = .{ .c = c } });
+            return p.addNode(.{ .literal = .{ .char = c } });
         },
     }
 }
