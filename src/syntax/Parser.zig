@@ -10,6 +10,7 @@ const NodeList = ArrayList(Node.Index);
 
 const assert = std.debug.assert;
 
+/// Parser errors surfaced to callers.
 pub const Error = error{
     InvalidEscape,
     TrailingBackslash, // Escape at EOF
@@ -43,7 +44,7 @@ pub fn deinit(p: *Parser) void {
     p.arena.deinit();
 }
 
-// string iteration helper
+// String iteration helpers.
 
 fn atEnd(p: *Parser) bool {
     return p.offset >= p.pattern.len;
@@ -66,7 +67,7 @@ fn peek(p: *Parser) ?u8 {
 // parser funcs
 //
 
-/// Parser entry method
+/// Parser entry method. Returns an Ast whose root node is the last element.
 pub fn parse(p: *Parser) !Ast {
     var concat = try p.createNodeList();
     const a = p.arena.allocator();

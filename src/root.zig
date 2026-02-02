@@ -14,6 +14,7 @@ pub fn bufferedPrint() !void {
     try stdout.flush(); // Don't forget to flush!
 }
 
-test "parser" {
-    _ = @import("syntax/parser.zig");
+test "internal tests" {
+    _ = @import("syntax/Parser.zig");
+    _ = @import("syntax/Compiler.zig");
 }

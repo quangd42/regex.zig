@@ -1,7 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-
 const ArrayList = std.ArrayList;
+
+const Ast = @This();
 
 nodes: []Node,
 
@@ -43,8 +44,6 @@ pub const Node = union(enum) {
         nodes: []Index,
     };
 };
-
-const Ast = @This();
 
 pub fn format(
     self: @This(),

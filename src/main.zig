@@ -1,5 +1,5 @@
 const std = @import("std");
-const regex_zig = @import("regex_zig");
+const regex_zig = @import("root.zig");
 
 pub fn main() !void {
     // Prints to stderr, ignoring potential errors.
