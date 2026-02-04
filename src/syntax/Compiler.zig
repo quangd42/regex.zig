@@ -6,21 +6,32 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 
 const Ast = @import("Ast.zig");
+const Parser = @import("Parser.zig");
+const Program = @import("Program.zig");
+const State = Program.State;
+const StateId = Program.StateId;
+const ByteRange = Program.ByteRange;
+const Index = Program.Index;
+const Length = Program.Length;
 
-const StateId = u32;
 const Compiler = @This();
 
-states: std.MultiArrayList(State) = .empty,
+states: ArrayList(State) = .empty,
 ranges: ArrayList(ByteRange) = .empty,
 branches: ArrayList(StateId) = .empty,
-/// arena, states, ranges and branches are owned by Program after compilation is done.
 arena: std.heap.ArenaAllocator,
 
-pub fn init(gpa: Allocator) Compiler {
-    return .{ .arena = .init(gpa) };
+/// Resources allocated are owned by Program after compilation is done, and caller is expected
+/// to call Program.deinit() to free them.
+pub fn compile(gpa: Allocator, pattern: []const u8) !Program {
+    var parser: Parser = .init(gpa, pattern);
+    defer parser.deinit();
+    const ast = try parser.parse();
+    var compiler: Compiler = .{ .arena = .init(gpa) };
+    return compiler.internalCompile(ast);
 }
 
-pub fn compile(c: *Compiler, ast: Ast) !Program {
+fn internalCompile(c: *Compiler, ast: Ast) !Program {
     const a = c.arena.allocator();
 
     // preparing Compiler's state:
@@ -33,7 +44,7 @@ pub fn compile(c: *Compiler, ast: Ast) !Program {
     const match_id = try c.emitState(.match);
     frag.outs.patch(c, match_id);
     return .{
-        .states = c.states.slice(),
+        .states = try c.states.toOwnedSlice(a),
         .ranges = try c.ranges.toOwnedSlice(a),
         .branches = try c.branches.toOwnedSlice(a),
         .arena = c.arena,
@@ -79,8 +90,7 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: StateId) !Frag {
                 const id = try c.emitState(.{ .alt2 = .{ .left = 0, .right = 0 } });
                 const left = try c.compileNode(ast, alt.nodes[0]);
                 const right = try c.compileNode(ast, alt.nodes[1]);
-                const payloads = c.states.items(.data);
-                payloads[id] = .{ .alt2 = .{ .left = left.id, .right = right.id } };
+                c.states.items[id] = .{ .alt2 = .{ .left = left.id, .right = right.id } };
                 return .{ .id = id, .outs = left.outs.append(c, right.outs) };
             }
 
@@ -101,7 +111,7 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: StateId) !Frag {
 }
 
 fn emitState(c: *Compiler, state: State) !StateId {
-    const state_id: StateId = @intCast(c.states.len);
+    const state_id: StateId = @intCast(c.states.items.len);
     try c.states.append(c.arena.allocator(), state);
     return state_id;
 }
@@ -177,17 +187,13 @@ const PatchList = struct {
         /// The field set is usually .out, except for when State is alt2,
         /// in which case Ptr.field determines alt2.left or .right.
         fn set(self: Ptr, c: *Compiler, value: StateId) void {
-            const states = c.states.slice();
-            const tags = states.items(.tags);
-            const payloads = states.items(.data);
-            const pl = &payloads[self.id];
-            switch (tags[self.id]) {
-                .char => pl.char.out = value,
-                .ranges => pl.ranges.out = value,
-                .empty => pl.empty.out = value,
-                .alt2 => switch (self.field) {
-                    .left => pl.alt2.left = value,
-                    .right => pl.alt2.right = value,
+            switch (c.states.items[self.id]) {
+                .char => |*pl| pl.out = value,
+                .ranges => |*pl| pl.out = value,
+                .empty => |*pl| pl.out = value,
+                .alt2 => |*pl| switch (self.field) {
+                    .left => pl.left = value,
+                    .right => pl.right = value,
                 },
                 else => unreachable,
             }
@@ -196,18 +202,14 @@ const PatchList = struct {
         /// Finds the value at the field encoded by Ptr. This value is assumed to be
         /// encoded and is turned into a new Ptr and returned.
         fn get(self: Ptr, c: *Compiler) Ptr {
-            const states = c.states.slice();
-            const tags = states.items(.tags);
-            const payloads = states.items(.data);
-            const pl = &payloads[self.id];
             return .fromId(
-                switch (tags[self.id]) {
-                    .char => pl.char.out,
-                    .ranges => pl.ranges.out,
-                    .empty => pl.empty.out,
-                    .alt2 => switch (self.field) {
-                        .left => pl.alt2.left,
-                        .right => pl.alt2.right,
+                switch (c.states.items[self.id]) {
+                    .char => |pl| pl.out,
+                    .ranges => |pl| pl.out,
+                    .empty => |pl| pl.out,
+                    .alt2 => |pl| switch (self.field) {
+                        .left => pl.left,
+                        .right => pl.right,
                     },
                     else => unreachable,
                 },
@@ -244,107 +246,49 @@ fn prepareCommonRanges(c: *Compiler) !void {
     }
 }
 
-/// State Opcode
-const Op = enum(u8) {
-    char,
-    ranges,
-    empty,
-    alt,
-    alt2,
-    match,
-    fail,
-};
-
-/// Index into metadata pool, such as Program.ranges or .branches, typically
-/// used as the 'start pointer' of a slice in the pool. For example, State.ranges
-/// is stored as a slice of the Program.ranges pool.
-pub const Index = u32;
-/// Length is the size of a slice in metadata pool.
-pub const Length = u16;
-/// ByteRange is inclusive on both ends.
-pub const ByteRange = struct { from: u8, to: u8 };
-
-pub const State = union(Op) {
-    char: struct { byte: u8, out: StateId },
-    ranges: struct { start: Index, len: Length, out: StateId },
-    empty: struct { out: StateId },
-    alt: struct { start: Index, len: Length },
-    alt2: struct { left: StateId, right: StateId },
-    match,
-    fail,
-};
-
-pub const Program = struct {
-    /// State list split into tags and payloads.
-    states: std.MultiArrayList(State).Slice,
-    /// Byte ranges referenced by State.ranges.
-    ranges: []ByteRange,
-    /// Alternation targets referenced by State.alt.
-    branches: []Index,
-    /// Arena that owns the backing memory for states/ranges/branches.
-    arena: std.heap.ArenaAllocator,
-};
-
-fn dumpDebug(prog: Program) void {
-    std.debug.print("States\n", .{});
-    const state_tags = prog.states.items(.tags);
-    const state_payloads = prog.states.items(.data);
-    for (state_tags, state_payloads, 0..) |tag, payload, i| {
-        switch (tag) {
-            .char => std.debug.print(
-                "{d:>3} {s:<8} byte={c}  out={d:<3}\n",
-                .{ i, @tagName(tag), payload.char.byte, payload.char.out },
-            ),
-            .ranges => {
-                std.debug.print(
-                    "{d:>3} {s:<8}         out={d:<3}  start={d:<3} len={d:<3}\n",
-                    .{ i, @tagName(tag), payload.ranges.out, payload.ranges.start, payload.ranges.len },
-                );
-            },
-            .alt => {
-                std.debug.print(
-                    "{d:>3} {s:<8}                  start={d:<3} len={d:<3}",
-                    .{ i, @tagName(tag), payload.alt.start, payload.alt.len },
-                );
-                std.debug.print("  [ ", .{});
-                for (prog.branches[payload.alt.start..][0..payload.alt.len]) |out_idx| {
-                    std.debug.print("{d} ", .{out_idx});
-                }
-                std.debug.print("]\n", .{});
-            },
-            .alt2 => {
-                std.debug.print(
-                    "{d:>3} {s:<8}         left={d:<3} right={d:<3}\n",
-                    .{ i, @tagName(tag), payload.alt2.left, payload.alt2.right },
-                );
-            },
-            .empty => std.debug.print("{d:>3} {s:<8}         out={d:<3}\n", .{ i, @tagName(tag), payload.empty.out }),
-            .match => std.debug.print("{d:>3} {s:<8}\n", .{ i, @tagName(tag) }),
-            .fail => std.debug.print("{d:>3} {s:<8}\n", .{ i, @tagName(tag) }),
-        }
-    }
-
-    std.debug.print("\nRanges:\n", .{});
-    for (prog.ranges, 0..) |range, i| {
-        std.debug.print("{d:>3} {{ from = {c}, to = {c} }}\n", .{ i, range.from, range.to });
-    }
-}
-
 const testing = std.testing;
 
-test "compile and dump" {
+test "basic compile" {
     const a = testing.allocator;
+    const expect = testing.expect;
 
     const pattern = "a((b|c)|\\d|)(x|y)z";
-    const Parser = @import("Parser.zig");
-    const St = @import("Ast.zig");
-    var parser: Parser = .init(a, pattern);
-    defer parser.deinit();
+    var prog = try Compiler.compile(a, pattern);
+    defer prog.deinit();
 
-    const ast: St = try parser.parse();
+    const states = prog.states;
+    try expect(states.len == 13);
 
-    var compiler: Compiler = .init(a);
-    const prog = try compiler.compile(ast);
-    dumpDebug(prog);
-    prog.arena.deinit();
+    try expect(states[1].char.byte == 'a');
+    try expect(states[1].char.out == 2);
+
+    try expect(states[2].alt.start == 0);
+    try expect(states[2].alt.len == 3);
+    try expect(prog.branches[0] == 3);
+    try expect(prog.branches[1] == 6);
+    try expect(prog.branches[2] == 7);
+
+    try expect(states[3].alt2.left == 4);
+    try expect(states[3].alt2.right == 5);
+    try expect(states[4].char.byte == 'b');
+    try expect(states[4].char.out == 8);
+    try expect(states[5].char.byte == 'c');
+    try expect(states[5].char.out == 8);
+    try expect(states[6].ranges.out == 8);
+    try expect(states[6].ranges.start == 2);
+    try expect(states[6].ranges.len == 1);
+    try expect(states[7].empty.out == 8);
+
+    try expect(states[8].alt2.left == 9);
+    try expect(states[8].alt2.right == 10);
+    try expect(states[9].char.byte == 'x');
+    try expect(states[9].char.out == 11);
+    try expect(states[10].char.byte == 'y');
+    try expect(states[10].char.out == 11);
+    try expect(states[11].char.byte == 'z');
+    try expect(states[11].char.out == 12);
+
+    try expect(prog.ranges.len == 6);
+    try expect(prog.ranges[2].from == '0');
+    try expect(prog.ranges[2].to == '9');
 }

@@ -17,4 +17,6 @@ pub fn bufferedPrint() !void {
 test "internal tests" {
     _ = @import("syntax/Parser.zig");
     _ = @import("syntax/Compiler.zig");
+    _ = @import("engine/PikeVm.zig");
+    _ = @import("Regex.zig");
 }

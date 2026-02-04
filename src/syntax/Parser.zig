@@ -63,9 +63,7 @@ fn peek(p: *Parser) ?u8 {
     return p.pattern[p.offset + 1];
 }
 
-//
-// parser funcs
-//
+// --- parser funcs ---
 
 /// Parser entry method. Returns an Ast whose root node is the last element.
 pub fn parse(p: *Parser) !Ast {
