@@ -20,7 +20,7 @@ pub const ByteRange = struct {
 
 pub const State = union(enum) {
     char: struct { byte: u8, out: StateId },
-    ranges: struct { start: Index, len: Length, out: StateId },
+    ranges: struct { start: Index, len: Length, negated: bool, out: StateId },
     empty: struct { out: StateId },
     alt: struct { start: Index, len: Length },
     alt2: struct { left: StateId, right: StateId },
@@ -43,7 +43,7 @@ pub fn deinit(p: *Program) void {
     p.arena.deinit();
 }
 
-fn dumpDebug(prog: Program) void {
+pub fn dumpDebug(prog: Program) void {
     std.debug.print("States\n", .{});
     for (prog.states, 0..) |state, i| {
         switch (state) {

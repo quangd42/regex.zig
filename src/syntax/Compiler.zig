@@ -64,9 +64,9 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: StateId) !Frag {
             // if singleton => emitChar
             // else => emitMulti
             const id = switch (cl.kind) {
-                .digit => try c.emitCommonRanges(.digit, 1),
-                .word => try c.emitCommonRanges(.lower_alpha, 4),
-                .space => try c.emitCommonRanges(.literal_space, 2),
+                .digit => try c.emitCommonRanges(.digit, 1, cl.negated),
+                .word => try c.emitCommonRanges(.lower_alpha, 4, cl.negated),
+                .space => try c.emitCommonRanges(.literal_space, 2, cl.negated),
             };
             return .{ .id = id, .outs = .fromOne(id) };
         },
@@ -116,8 +116,13 @@ fn emitState(c: *Compiler, state: State) !StateId {
     return state_id;
 }
 
-fn emitCommonRanges(c: *Compiler, range_start: CommonByteRange, len: Length) !StateId {
-    return c.emitState(.{ .ranges = .{ .start = @intFromEnum(range_start), .len = len, .out = 0 } });
+fn emitCommonRanges(c: *Compiler, range_start: CommonByteRange, len: Length, negated: bool) !StateId {
+    return c.emitState(.{ .ranges = .{
+        .start = @intFromEnum(range_start),
+        .len = len,
+        .out = 0,
+        .negated = negated,
+    } });
 }
 
 /// A compiled fragment returned by compileNode.

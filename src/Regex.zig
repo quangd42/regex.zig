@@ -25,9 +25,10 @@ pub fn match(re: *Regex, haystack: []const u8) bool {
 test "basic end-to-end" {
     const testing = std.testing;
     const gpa = testing.allocator;
-    var re = try compile(gpa, "a(b|c)d");
+    var re = try compile(gpa, "a(b|c|)\\d");
     defer re.deinit();
-    try testing.expect(re.match("abd"));
-    try testing.expect(re.match("acd"));
-    try testing.expect(!re.match("aad"));
+    try testing.expect(re.match("ab0"));
+    try testing.expect(re.match("ac1"));
+    try testing.expect(re.match("a1"));
+    try testing.expect(!re.match("aadd"));
 }

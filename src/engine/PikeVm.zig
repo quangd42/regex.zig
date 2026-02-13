@@ -9,6 +9,7 @@ const Vm = @This();
 prog: Program,
 current_states: SparseSet,
 next_states: SparseSet,
+stack: []StateId,
 arena: std.heap.ArenaAllocator,
 
 pub fn init(gpa: Allocator, prog: Program) !Vm {
@@ -19,6 +20,7 @@ pub fn init(gpa: Allocator, prog: Program) !Vm {
         .prog = prog,
         .current_states = try .init(a, nfa_size),
         .next_states = try .init(a, nfa_size),
+        .stack = try a.alloc(StateId, nfa_size),
         .arena = arena,
     };
 }
@@ -29,59 +31,95 @@ pub fn deinit(vm: *Vm) void {
 }
 
 pub fn match(vm: *Vm, haystack: []const u8) bool {
+    vm.current_states.clear();
+    vm.next_states.clear();
     // StateId 0 is reserved for .fail so we start with 1
-    vm.epsilon_closure(&vm.current_states, 1);
+    vm.epsilon_closure_to(&vm.current_states, 1);
 
-    for (haystack) |c| {
+    // Empty match e.g. `(a|)`
+    if (vm.has_match()) return true;
+
+    var start: usize = 0;
+    if (vm.has_literal_prefix()) |byte| {
+        // TODO: use memchr with SIMD to find position of first byte.
+        // indexOfScalar() is a linear search. Same for find().
+        start = std.mem.indexOfScalar(u8, haystack, byte) orelse return false;
+    }
+
+    for (haystack[start..]) |c| {
         if (vm.current_states.count == 0) return false;
         vm.step(c);
+        if (vm.has_match()) return true;
+        // Start the matching process again at this position in the haystack
+        // effectively rewriting compiled `pattern` into `.*pattern`.
+        vm.epsilon_closure_to(&vm.current_states, 1);
     }
 
-    // If there is .match in the final set of states, there is a match
-    for (vm.current_states.slice()) |id| {
-        switch (vm.prog.states[id]) {
-            .match => return true,
-            else => {},
-        }
-    }
     return false;
 }
 
-// TODO: use dfs instead of recursion
-fn epsilon_closure(vm: *Vm, state_set: *SparseSet, id: StateId) void {
-    switch (vm.prog.states[id]) {
-        .char, .ranges, .match, .fail => {
-            state_set.add(id);
-        },
-        .empty => |s| {
-            vm.epsilon_closure(state_set, s.out);
-        },
-        .alt2 => |s| {
-            vm.epsilon_closure(state_set, s.left);
-            vm.epsilon_closure(state_set, s.right);
-        },
-        .alt => |s| {
-            for (vm.prog.branches[s.start..][0..s.len]) |branch| {
-                vm.epsilon_closure(state_set, branch);
-            }
-        },
+fn has_literal_prefix(vm: *Vm) ?u8 {
+    if (vm.prog.states.len < 2) return null;
+    return switch (vm.prog.states[1]) {
+        .char => |s| s.byte,
+        else => null,
+    };
+}
+
+fn epsilon_closure(vm: *Vm, id: u32) void {
+    return vm.epsilon_closure_to(&vm.next_states, id);
+}
+
+fn epsilon_closure_to(vm: *Vm, state_set: *SparseSet, id: StateId) void {
+    var top: usize = 0;
+    std.debug.assert(vm.stack.len > 0);
+    vm.stack[top] = id;
+    top += 1;
+
+    while (top > 0) {
+        top -= 1;
+        const state_id = vm.stack[top];
+        switch (vm.prog.states[state_id]) {
+            .char, .ranges, .match, .fail => {
+                state_set.add(state_id);
+            },
+            .empty => |s| {
+                std.debug.assert(top < vm.stack.len);
+                vm.stack[top] = s.out;
+                top += 1;
+            },
+            .alt2 => |s| {
+                std.debug.assert(top + 1 < vm.stack.len);
+                vm.stack[top] = s.left;
+                vm.stack[top + 1] = s.right;
+                top += 2;
+            },
+            .alt => |s| {
+                const branches = vm.prog.branches[s.start..][0..s.len];
+                std.debug.assert(top + branches.len <= vm.stack.len);
+                for (branches) |branch| {
+                    vm.stack[top] = branch;
+                    top += 1;
+                }
+            },
+        }
     }
 }
 
 fn step(vm: *Vm, target: u8) void {
     vm.next_states.clear();
+    defer std.mem.swap(SparseSet, &vm.current_states, &vm.next_states);
     for (vm.current_states.slice()) |state_id| {
         switch (vm.prog.states[state_id]) {
             .char => |s| {
-                if (target == s.byte) {
-                    vm.epsilon_closure(&vm.next_states, s.out);
-                }
+                if (target == s.byte) vm.epsilon_closure(s.out);
             },
             .ranges => |s| {
-                for (vm.prog.ranges[s.start..][0..s.len]) |range| {
-                    if (range.contains(target)) {
-                        vm.epsilon_closure(&vm.next_states, s.out);
-                    }
+                const in_range = for (vm.prog.ranges[s.start..][0..s.len]) |range| {
+                    if (range.contains(target)) break true;
+                } else false;
+                if (!s.negated and in_range or s.negated and !in_range) {
+                    vm.epsilon_closure(s.out);
                 }
             },
             .empty, .alt, .alt2 => {
@@ -93,10 +131,20 @@ fn step(vm: *Vm, target: u8) void {
                 // TODO: what does this mean?
                 // allow for longer match but cut off other states???
             },
-            .fail => return,
+            .fail => {}, // simply do not add it to next_states
         }
     }
-    std.mem.swap(SparseSet, &vm.current_states, &vm.next_states);
+}
+
+/// Reports if there is a .match state in current_states.
+fn has_match(vm: *Vm) bool {
+    for (vm.current_states.slice()) |id| {
+        switch (vm.prog.states[id]) {
+            .match => return true,
+            else => {},
+        }
+    }
+    return false;
 }
 
 const SparseSet = struct {
