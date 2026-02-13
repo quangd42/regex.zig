@@ -1,8 +1,11 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const Program = @import("../syntax/Program.zig");
-const StateId = Program.StateId;
+const SparseSet = @import("SparseSet.zig");
+const types = @import("types.zig");
+const Program = types.Program;
+const StateId = types.StateId;
+const Match = types.Match;
 
 const Vm = @This();
 
@@ -30,35 +33,64 @@ pub fn deinit(vm: *Vm) void {
     vm.arena.deinit();
 }
 
+/// Performs unanchored matching on given haystack.
 pub fn match(vm: *Vm, haystack: []const u8) bool {
     vm.current_states.clear();
     vm.next_states.clear();
-    // StateId 0 is reserved for .fail so we start with 1
-    vm.epsilon_closure_to(&vm.current_states, 1);
-
-    // Empty match e.g. `(a|)`
-    if (vm.has_match()) return true;
+    vm.seedStartState();
 
     var start: usize = 0;
-    if (vm.has_literal_prefix()) |byte| {
+    if (vm.hasLiteralPrefix()) |byte| {
         // TODO: use memchr with SIMD to find position of first byte.
         // indexOfScalar() is a linear search. Same for find().
         start = std.mem.indexOfScalar(u8, haystack, byte) orelse return false;
     }
-
     for (haystack[start..]) |c| {
-        if (vm.current_states.count == 0) return false;
-        vm.step(c);
-        if (vm.has_match()) return true;
+        if (vm.next_states.len == 0) return false;
+        if (vm.step(c)) return true;
         // Start the matching process again at this position in the haystack
         // effectively rewriting compiled `pattern` into `.*pattern`.
-        vm.epsilon_closure_to(&vm.current_states, 1);
+        vm.seedStartState();
     }
-
+    if (vm.hasMatch()) return true;
     return false;
 }
 
-fn has_literal_prefix(vm: *Vm) ?u8 {
+/// Returns the start and end indice of the left most match into haystack. If there is no
+/// match, returns null.
+// TODO: currently O(n^2), refactor once captures is implemented
+pub fn find(vm: *Vm, haystack: []const u8) ?Match {
+    vm.current_states.clear();
+    vm.next_states.clear();
+
+    var start: usize = 0;
+    if (vm.hasLiteralPrefix()) |byte| {
+        start = std.mem.indexOfScalar(u8, haystack, byte) orelse return null;
+    }
+
+    for (start..haystack.len) |i| {
+        if (vm.findAt(i, haystack)) |found| return found;
+    }
+    return null;
+}
+
+fn findAt(vm: *Vm, start: usize, haystack: []const u8) ?Match {
+    vm.current_states.clear();
+    vm.next_states.clear();
+    vm.seedStartState();
+
+    var best_match: ?Match = null;
+    for (haystack[start..], 0..) |c, i| {
+        if (vm.next_states.len == 0) return best_match;
+        // The .match state is found when processing the char after the matched text.
+        // So this position is incidentally also the right bound of the Match result.
+        if (vm.step(c)) best_match = .{ .start = start, .end = start + i };
+    }
+    if (vm.hasMatch()) best_match = .{ .start = start, .end = haystack.len };
+    return best_match;
+}
+
+fn hasLiteralPrefix(vm: *Vm) ?u8 {
     if (vm.prog.states.len < 2) return null;
     return switch (vm.prog.states[1]) {
         .char => |s| s.byte,
@@ -66,16 +98,13 @@ fn has_literal_prefix(vm: *Vm) ?u8 {
     };
 }
 
-fn epsilon_closure(vm: *Vm, id: u32) void {
-    return vm.epsilon_closure_to(&vm.next_states, id);
-}
-
-fn epsilon_closure_to(vm: *Vm, state_set: *SparseSet, id: StateId) void {
+fn epsilonClosure(vm: *Vm, id: StateId) void {
     var top: usize = 0;
     std.debug.assert(vm.stack.len > 0);
     vm.stack[top] = id;
     top += 1;
 
+    const state_set = &vm.next_states;
     while (top > 0) {
         top -= 1;
         const state_id = vm.stack[top];
@@ -90,15 +119,18 @@ fn epsilon_closure_to(vm: *Vm, state_set: *SparseSet, id: StateId) void {
             },
             .alt2 => |s| {
                 std.debug.assert(top + 1 < vm.stack.len);
-                vm.stack[top] = s.left;
-                vm.stack[top + 1] = s.right;
+                vm.stack[top] = s.right;
+                vm.stack[top + 1] = s.left;
                 top += 2;
             },
             .alt => |s| {
-                const branches = vm.prog.branches[s.start..][0..s.len];
-                std.debug.assert(top + branches.len <= vm.stack.len);
-                for (branches) |branch| {
-                    vm.stack[top] = branch;
+                // Alternation is added in reversed order so branches are processed in
+                // left-first order in a stack.
+                std.debug.assert(top + s.len <= vm.stack.len);
+                var i: usize = 0;
+                while (i < s.len) : (i += 1) {
+                    const idx = s.start + s.len - i - 1;
+                    vm.stack[top] = vm.prog.branches[idx];
                     top += 1;
                 }
             },
@@ -106,20 +138,20 @@ fn epsilon_closure_to(vm: *Vm, state_set: *SparseSet, id: StateId) void {
     }
 }
 
-fn step(vm: *Vm, target: u8) void {
-    vm.next_states.clear();
-    defer std.mem.swap(SparseSet, &vm.current_states, &vm.next_states);
-    for (vm.current_states.slice()) |state_id| {
+fn step(vm: *Vm, target: u8) bool {
+    vm.current_states.clear();
+    std.mem.swap(SparseSet, &vm.current_states, &vm.next_states);
+    return for (vm.current_states.slice()) |state_id| {
         switch (vm.prog.states[state_id]) {
             .char => |s| {
-                if (target == s.byte) vm.epsilon_closure(s.out);
+                if (target == s.byte) vm.epsilonClosure(s.out);
             },
             .ranges => |s| {
                 const in_range = for (vm.prog.ranges[s.start..][0..s.len]) |range| {
                     if (range.contains(target)) break true;
                 } else false;
                 if (!s.negated and in_range or s.negated and !in_range) {
-                    vm.epsilon_closure(s.out);
+                    vm.epsilonClosure(s.out);
                 }
             },
             .empty, .alt, .alt2 => {
@@ -128,117 +160,31 @@ fn step(vm: *Vm, target: u8) void {
                 unreachable;
             },
             .match => {
-                // TODO: what does this mean?
-                // allow for longer match but cut off other states???
+                // There is a match at the previous character. We discard the other lower priority
+                // threads in the list.
+                //
+                // If this occurs at the first character of the input, there is an empty match.
+                break true;
             },
-            .fail => {}, // simply do not add it to next_states
+            .fail => {}, // Simply do not add this thread to next_states.
         }
-    }
+    } else false;
 }
 
-/// Reports if there is a .match state in current_states.
-fn has_match(vm: *Vm) bool {
-    for (vm.current_states.slice()) |id| {
+// StateId 0 is reserved for .fail so we start with 1
+fn seedStartState(vm: *Vm) void {
+    vm.epsilonClosure(1);
+}
+
+/// Reports if there is a .match state in next_states. As the search for .match state is typically done
+/// during the processing of the next character, this function is typically only called when there is
+/// no more input to process.
+fn hasMatch(vm: *Vm) bool {
+    for (vm.next_states.slice()) |id| {
         switch (vm.prog.states[id]) {
             .match => return true,
             else => {},
         }
     }
     return false;
-}
-
-const SparseSet = struct {
-    sparse: []StateId,
-    dense: []StateId,
-    count: u32,
-    max: u32,
-
-    fn init(gpa: Allocator, size: u32) !SparseSet {
-        return .{
-            .sparse = try gpa.alloc(StateId, size),
-            .dense = try gpa.alloc(StateId, size),
-            .count = 0,
-            .max = size,
-        };
-    }
-
-    fn deinit(s: *SparseSet, gpa: Allocator) void {
-        gpa.free(s.sparse);
-        gpa.free(s.dense);
-    }
-
-    fn findIndex(s: *SparseSet, id: StateId) ?u32 {
-        if (id >= s.max) return null;
-        const idx = s.sparse[id];
-        if (idx < s.count and s.dense[idx] == id) return idx;
-        return null;
-    }
-
-    fn contains(s: *SparseSet, id: StateId) bool {
-        return s.findIndex(id) != null;
-    }
-
-    fn add(s: *SparseSet, id: StateId) void {
-        if (s.findIndex(id) != null) return; // StateId exists
-        if (id >= s.max) return; // Invalid StateId
-        std.debug.assert(s.count < s.max); // add() dedups valid ids so s.count can never exceed s.max
-        s.dense[s.count] = id;
-        s.sparse[id] = s.count;
-        s.count += 1;
-    }
-
-    fn remove(s: *SparseSet, id: StateId) void {
-        const idx = s.findIndex(id) orelse return; // Nothing to remove
-        const moved = s.dense[s.count - 1];
-        s.dense[idx] = moved;
-        s.sparse[moved] = idx;
-        s.count -= 1;
-    }
-
-    fn clear(s: *SparseSet) void {
-        s.count = 0;
-    }
-
-    fn slice(s: *SparseSet) []StateId {
-        return s.dense[0..s.count];
-    }
-};
-
-const testing = std.testing;
-
-test "SparseSet add/remove basics" {
-    var set = try SparseSet.init(testing.allocator, 8);
-    defer set.deinit(testing.allocator);
-
-    set.add(1);
-    set.add(2);
-    set.add(3);
-    try testing.expectEqual(@as(usize, 3), set.slice().len);
-    try testing.expectEqual(@as(StateId, 1), set.slice()[0]);
-    try testing.expectEqual(@as(StateId, 2), set.slice()[1]);
-    try testing.expectEqual(@as(StateId, 3), set.slice()[2]);
-
-    set.remove(2);
-    try testing.expectEqual(@as(usize, 2), set.slice().len);
-    try testing.expectEqual(@as(StateId, 1), set.slice()[0]);
-    try testing.expectEqual(@as(StateId, 3), set.slice()[1]);
-    try testing.expect(set.findIndex(2) == null);
-}
-
-test "SparseSet clear and dedupe" {
-    var set = try SparseSet.init(testing.allocator, 4);
-    defer set.deinit(testing.allocator);
-
-    set.add(0);
-    set.add(1);
-    set.add(1);
-    try testing.expectEqual(@as(usize, 2), set.slice().len);
-
-    set.clear();
-    try testing.expectEqual(@as(usize, 0), set.slice().len);
-
-    set.add(3);
-    set.add(3);
-    try testing.expectEqual(@as(usize, 1), set.slice().len);
-    try testing.expectEqual(@as(StateId, 3), set.slice()[0]);
 }

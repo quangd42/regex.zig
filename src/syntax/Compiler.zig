@@ -11,7 +11,6 @@ const Program = @import("Program.zig");
 const State = Program.State;
 const StateId = Program.StateId;
 const ByteRange = Program.ByteRange;
-const Index = Program.Index;
 const Length = Program.Length;
 
 const Compiler = @This();
@@ -28,10 +27,10 @@ pub fn compile(gpa: Allocator, pattern: []const u8) !Program {
     defer parser.deinit();
     const ast = try parser.parse();
     var compiler: Compiler = .{ .arena = .init(gpa) };
-    return compiler.internalCompile(ast);
+    return compiler.compileAst(ast);
 }
 
-fn internalCompile(c: *Compiler, ast: Ast) !Program {
+fn compileAst(c: *Compiler, ast: Ast) !Program {
     const a = c.arena.allocator();
 
     // preparing Compiler's state:
@@ -51,7 +50,7 @@ fn internalCompile(c: *Compiler, ast: Ast) !Program {
     };
 }
 
-fn compileNode(c: *Compiler, ast: Ast, node_index: StateId) !Frag {
+fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) !Frag {
     const a = c.arena.allocator();
     const node = ast.nodes[node_index];
     switch (node) {
