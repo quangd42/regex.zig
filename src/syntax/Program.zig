@@ -10,6 +10,9 @@ pub const Index = u32;
 /// Typically Index and Length are used together as a `slice` into metadata arrays.
 pub const Length = u16;
 
+/// Position of a character into input `haystack`.
+pub const Offset = u32;
+
 /// ByteRange is inclusive on both ends.
 pub const ByteRange = struct {
     from: u8,
@@ -35,6 +38,9 @@ pub const State = union(enum) {
 
     /// Unconditional epsilon transition.
     empty: struct { out: Id },
+
+    /// Unconditional epsilon transition that carries the capture slot information (2k or 2k+1).
+    capture: struct { slot: Index, out: Id },
 
     /// This state indicates epsilon transition to a list of states (branches), where matches found
     /// in earlier branches are preferred over later.
@@ -67,8 +73,26 @@ ranges: []ByteRange,
 branches: []State.Id,
 arena: std.heap.ArenaAllocator,
 
+/// The number of capturing groups in the nfa, including the default group for the full match.
+/// It is sized as u16 so that the slot count = group_count * 2 will fit into an u32. This is
+/// an implementation limit.
+group_count: u16,
+
 pub fn deinit(p: *Program) void {
     p.arena.deinit();
+}
+
+pub fn literalPrefix(p: *Program) ?u8 {
+    if (p.states.len < 2) return null;
+    var id: usize = 0;
+    while (true) {
+        switch (p.states[id]) {
+            .char => |s| return s.byte,
+            .capture => |s| id = s.out,
+            .empty => |s| id = s.out,
+            else => return null,
+        }
+    }
 }
 
 pub fn dumpDebug(prog: Program) void {

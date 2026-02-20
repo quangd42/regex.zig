@@ -34,12 +34,13 @@ pub inline fn contains(s: *SparseSet, id: StateId) bool {
     return idx < s.len and s.dense[idx] == id;
 }
 
-pub inline fn add(s: *SparseSet, id: StateId) void {
-    if (s.contains(id)) return; // StateId exists, no-op
+pub inline fn add(s: *SparseSet, id: StateId) bool {
+    if (s.contains(id)) return false;
     std.debug.assert(s.len < s.cap()); // add() dedups valid ids so s.len can never exceed s.cap()
     s.dense[s.len] = id;
     s.sparse[id] = s.len;
     s.len += 1;
+    return true;
 }
 
 pub inline fn clear(s: *SparseSet) void {
@@ -56,9 +57,9 @@ test "SparseSet add/remove basics" {
     var set = try SparseSet.init(testing.allocator, 8);
     defer set.deinit(testing.allocator);
 
-    set.add(1);
-    set.add(2);
-    set.add(3);
+    _ = set.add(1);
+    _ = set.add(2);
+    _ = set.add(3);
     try testing.expectEqual(@as(usize, 3), set.slice().len);
     try testing.expectEqual(@as(StateId, 1), set.slice()[0]);
     try testing.expectEqual(@as(StateId, 2), set.slice()[1]);
@@ -69,16 +70,16 @@ test "SparseSet clear and dedupe" {
     var set = try SparseSet.init(testing.allocator, 4);
     defer set.deinit(testing.allocator);
 
-    set.add(0);
-    set.add(1);
-    set.add(1);
+    _ = set.add(0);
+    _ = set.add(1);
+    _ = set.add(1);
     try testing.expectEqual(@as(usize, 2), set.slice().len);
 
-    set.clear();
+    _ = set.clear();
     try testing.expectEqual(@as(usize, 0), set.slice().len);
 
-    set.add(3);
-    set.add(3);
+    _ = set.add(3);
+    _ = set.add(3);
     try testing.expectEqual(@as(usize, 1), set.slice().len);
     try testing.expectEqual(@as(StateId, 3), set.slice()[0]);
 }

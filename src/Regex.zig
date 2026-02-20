@@ -7,6 +7,7 @@ const PikeVM = @import("engine/PikeVm.zig");
 
 const Engine = @import("engine.zig");
 pub const Match = Engine.Match;
+pub const Captures = Engine.Captures;
 
 engine: PikeVM,
 
@@ -27,6 +28,18 @@ pub fn match(re: *Regex, haystack: []const u8) bool {
 
 pub fn find(re: *Regex, haystack: []const u8) ?Match {
     return re.engine.find(haystack);
+}
+
+pub fn findCaptures(re: *Regex, haystack: []const u8, buffer: []?Match) ?Captures {
+    return re.engine.findCaptures(haystack, buffer);
+}
+
+pub fn findCapturesAlloc(re: *Regex, gpa: Allocator, haystack: []const u8) !?Captures {
+    return re.engine.findCapturesAlloc(gpa, haystack);
+}
+
+pub fn capturesLen(re: *Regex) usize {
+    return re.engine.capturesLen();
 }
 
 test "basic end-to-end" {
