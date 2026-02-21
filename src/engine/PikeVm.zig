@@ -25,8 +25,8 @@ pub fn init(gpa: Allocator, prog: Program) !Vm {
     const a = arena.allocator();
     return .{
         .prog = prog,
-        .current_states = try .init(a, state_count, slot_count),
-        .next_states = try .init(a, state_count, slot_count),
+        .current_states = try .init(a, state_count, prog.matcher_count, slot_count),
+        .next_states = try .init(a, state_count, prog.matcher_count, slot_count),
         .stack = try .init(a, state_count),
         .scratch_slots = try initSlots(a, slot_count),
         .arena = arena,
@@ -286,18 +286,18 @@ const EpsilonStack = struct {
 /// A set of active NFA threads with associated capture slot data.
 ///
 /// Internally, it wraps a SparseSet for O(1) membership checks and pairs each entry with a row
-/// of `slot_count` InputOffset values. The `slots` array is parallel to `set.dense` (and is also
-/// densely packed) - see `slotsFor(id)`.
-// TODO: size `slots` with matcher_count instead of state_count
+/// of `slot_count` InputOffset values.
+///
+/// The `slots` array is parallel to `set.dense` (and is also densely packed) - see `slotsFor(id)`.
 const ThreadList = struct {
     set: SparseSet,
     slots: []Offset,
     slot_count: u32,
 
-    fn init(gpa: Allocator, state_count: u32, slot_count: u32) !ThreadList {
+    fn init(gpa: Allocator, state_count: u32, matcher_count: u32, slot_count: u32) !ThreadList {
         return .{
-            .set = try .init(gpa, state_count),
-            .slots = try initSlots(gpa, state_count * slot_count),
+            .set = try .init(gpa, state_count, matcher_count),
+            .slots = try initSlots(gpa, matcher_count * slot_count),
             .slot_count = slot_count,
         };
     }

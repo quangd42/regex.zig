@@ -73,6 +73,8 @@ ranges: []ByteRange,
 branches: []State.Id,
 arena: std.heap.ArenaAllocator,
 
+/// Useful to determine the upper bound of allocated ThreadList size.
+matcher_count: u32,
 /// The number of capturing groups in the nfa, including the default group for the full match.
 /// It is sized as u16 so that the slot count = group_count * 2 will fit into an u32. This is
 /// an implementation limit.

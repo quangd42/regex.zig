@@ -23,6 +23,8 @@ arena: std.heap.ArenaAllocator,
 
 /// See `Program.group_count`.
 group_count: u16 = 1,
+/// See `Program.matcher_count`.
+matcher_count: u32 = 0,
 
 /// Resources allocated are owned by Program after compilation is done, and caller is expected
 /// to call Program.deinit() to free them.
@@ -54,6 +56,7 @@ fn compileAst(c: *Compiler, ast: Ast) !Program {
         .branches = try c.branches.toOwnedSlice(a),
         .arena = c.arena,
         .group_count = c.group_count,
+        .matcher_count = c.matcher_count,
     };
 }
 
@@ -130,6 +133,10 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) !Frag {
 fn emitState(c: *Compiler, state: State) !StateId {
     const state_id: StateId = @intCast(c.states.items.len);
     try c.states.append(c.arena.allocator(), state);
+    switch (state) {
+        .char, .ranges, .fail, .match => c.matcher_count += 1,
+        .empty, .capture, .alt, .alt2 => {},
+    }
     return state_id;
 }
 

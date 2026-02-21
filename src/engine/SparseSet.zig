@@ -12,10 +12,13 @@ len: u32,
 
 /// The size of SparseSet must fit into a u32, which is the underlying type of StateId,
 /// otherwise SparseSet operations will panic.
-pub fn init(gpa: Allocator, size: u32) !SparseSet {
+///
+/// Because epsilon states are never added to the set, `dense_size` can take the count
+/// of matcher states to save a little bit of heap memory.
+pub fn init(gpa: Allocator, sparse_size: u32, dense_size: u32) !SparseSet {
     return .{
-        .sparse = try gpa.alloc(StateId, size),
-        .dense = try gpa.alloc(StateId, size),
+        .sparse = try gpa.alloc(StateId, sparse_size),
+        .dense = try gpa.alloc(StateId, dense_size),
         .len = 0,
     };
 }
@@ -54,7 +57,7 @@ pub inline fn slice(s: *SparseSet) []StateId {
 const testing = std.testing;
 
 test "SparseSet add/remove basics" {
-    var set = try SparseSet.init(testing.allocator, 8);
+    var set = try SparseSet.init(testing.allocator, 8, 8);
     defer set.deinit(testing.allocator);
 
     _ = set.add(1);
@@ -67,7 +70,7 @@ test "SparseSet add/remove basics" {
 }
 
 test "SparseSet clear and dedupe" {
-    var set = try SparseSet.init(testing.allocator, 4);
+    var set = try SparseSet.init(testing.allocator, 4, 4);
     defer set.deinit(testing.allocator);
 
     _ = set.add(0);
