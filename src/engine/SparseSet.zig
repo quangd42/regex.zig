@@ -28,16 +28,16 @@ pub fn deinit(s: *SparseSet, gpa: Allocator) void {
     gpa.free(s.dense);
 }
 
-pub inline fn cap(s: *SparseSet) usize {
+pub fn cap(s: *SparseSet) usize {
     return s.dense.len;
 }
 
-pub inline fn contains(s: *SparseSet, id: StateId) bool {
+pub fn contains(s: *SparseSet, id: StateId) bool {
     const idx = s.sparse[id];
     return idx < s.len and s.dense[idx] == id;
 }
 
-pub inline fn add(s: *SparseSet, id: StateId) bool {
+pub fn add(s: *SparseSet, id: StateId) bool {
     if (s.contains(id)) return false;
     std.debug.assert(s.len < s.cap()); // add() dedups valid ids so s.len can never exceed s.cap()
     s.dense[s.len] = id;
@@ -46,11 +46,11 @@ pub inline fn add(s: *SparseSet, id: StateId) bool {
     return true;
 }
 
-pub inline fn clear(s: *SparseSet) void {
+pub fn clear(s: *SparseSet) void {
     s.len = 0;
 }
 
-pub inline fn slice(s: *SparseSet) []StateId {
+pub fn slice(s: *SparseSet) []StateId {
     return s.dense[0..s.len];
 }
 

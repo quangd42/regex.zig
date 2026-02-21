@@ -15,7 +15,7 @@ Legend:
 | Literals | done |
 | Escaped literals | planned |
 | Dot (.) | planned |
-| Concatenation | planned |
+| Concatenation | done |
 | Alternation (|) | done |
 | Grouping (...) | done |
 
@@ -57,7 +57,7 @@ Legend:
 
 | Feature | PikeVM (NFA) |
 | --- | --- |
-| Capturing groups | planned |
+| Capturing groups | done |
 | Non-capturing groups (?:...) | planned |
 | Named capturing groups (?P<name>...) | planned |
 | Backreferences (\1, \k<name>) | not supported |
@@ -99,10 +99,10 @@ Legend:
 
 | Feature | PikeVM (NFA) |
 | --- | --- |
-| Empty matches (zero-width) | planned |
-| Leftmost-first semantics | planned |
+| Empty matches (zero-width) | done |
+| Leftmost-first semantics | done |
 | Leftmost-longest semantics | planned |
-| Earliest match search | planned |
+| Earliest match search | done |
 | Overlapping matches | planned |
 | Multiple patterns (pattern sets) | planned |
 | Capture iteration | planned |

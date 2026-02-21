@@ -22,22 +22,33 @@ pub fn deinit(re: *Regex) void {
     re.engine.deinit();
 }
 
+/// Performs unanchored matching on the given haystack.
 pub fn match(re: *Regex, haystack: []const u8) bool {
     return re.engine.match(haystack);
 }
 
+/// Returns the start and end indices of the left-most match in the haystack.
+/// Returns null when there is no match.
 pub fn find(re: *Regex, haystack: []const u8) ?Match {
     return re.engine.find(haystack);
 }
 
+/// Searches for a match and writes capture groups into the supplied buffer.
+/// Returns Captures wrapping the buffer on match, or null if no match is found.
+/// Asserts that `buffer.len` is at least `capturesLen()`.
 pub fn findCaptures(re: *Regex, haystack: []const u8, buffer: []?Match) ?Captures {
     return re.engine.findCaptures(haystack, buffer);
 }
 
+/// Convenient function that creates a buffer of the correct size on the heap,
+/// and call `findCaptures()` with it. Caller owns the return buffer.
+/// Frees the buffer if there is no match.
 pub fn findCapturesAlloc(re: *Regex, gpa: Allocator, haystack: []const u8) !?Captures {
     return re.engine.findCapturesAlloc(gpa, haystack);
 }
 
+/// Returns the number of capture groups (including group 0 for the full match).
+/// Useful to determine the required minimum size of buffer for `findCaptures()`.
 pub fn capturesLen(re: *Regex) usize {
     return re.engine.capturesLen();
 }
