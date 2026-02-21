@@ -42,6 +42,10 @@ pub fn capturesLen(re: *Regex) usize {
     return re.engine.capturesLen();
 }
 
+test "testdata" {
+    _ = @import("tests/fowler_basic.zig");
+}
+
 test "basic end-to-end" {
     const testing = std.testing;
     const gpa = testing.allocator;
