@@ -93,9 +93,8 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) !Frag {
         },
         .concat => |cat| {
             if (cat.nodes.len == 0) {
-                // empty alternation branch
-                const id = try c.emitState(.{ .empty = .{ .out = 0 } });
-                return .{ .id = id, .outs = .fromOne(id) };
+                // Occurs in empty alternation branch
+                return c.compileEmpty();
             }
             var frag = try c.compileNode(ast, cat.nodes[0]);
             for (cat.nodes[1..]) |index| {
@@ -107,7 +106,7 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) !Frag {
         },
         .alternation => |alt| {
             if (alt.nodes.len == 2) {
-                const id = try c.emitState(.{ .alt2 = .{ .left = 0, .right = 0 } });
+                const id = try c.emitAlt2();
                 const left = try c.compileNode(ast, alt.nodes[0]);
                 const right = try c.compileNode(ast, alt.nodes[1]);
                 c.states.items[id] = .{ .alt2 = .{ .left = left.id, .right = right.id } };
@@ -127,7 +126,104 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) !Frag {
             }
             return frag;
         },
+        .repetition => |rep| {
+            const Kind = Ast.Node.Repetition.Kind;
+            rep_kind: switch (rep.kind) {
+                .zero_or_one => {
+                    // alt: left -> node, right -> next
+                    const alt = try c.emitAlt2();
+                    var sub_frag = try c.compileNode(ast, rep.node);
+                    const rep_outs = c.repetitionAlt(alt, sub_frag.id, rep.lazy);
+                    sub_frag.outs = sub_frag.outs.append(c, rep_outs);
+                    return .{ .id = alt, .outs = sub_frag.outs };
+                },
+                .zero_or_more => {
+                    // (alt: left -> node, right -> next); node -> alt
+                    const alt = try c.emitAlt2();
+                    const sub_frag = try c.compileNode(ast, rep.node);
+                    sub_frag.outs.patch(c, alt);
+                    const outs = c.repetitionAlt(alt, sub_frag.id, rep.lazy);
+                    return .{ .id = alt, .outs = outs };
+                },
+                .one_or_more => {
+                    // node -> (alt: left -> node, right -> next)
+                    const sub_frag = try c.compileNode(ast, rep.node);
+                    const alt = try c.emitAlt2();
+                    sub_frag.outs.patch(c, alt);
+                    const outs = c.repetitionAlt(alt, sub_frag.id, rep.lazy);
+                    return .{ .id = sub_frag.id, .outs = outs };
+                },
+                // TODO: Compilation for counted repetition perhaps will be cut once
+                // the ast is simplified.
+                .exactly => |min| {
+                    if (min == 0) return c.compileEmpty();
+                    var frag = try c.compileNode(ast, rep.node);
+                    for (0..min - 1) |_| {
+                        const next_frag = try c.compileNode(ast, rep.node);
+                        frag.outs.patch(c, next_frag.id);
+                        frag.outs = next_frag.outs;
+                    }
+                    return frag;
+                },
+                .at_least => |min| {
+                    switch (min) {
+                        0 => continue :rep_kind Kind.zero_or_more,
+                        1 => continue :rep_kind Kind.one_or_more,
+                        else => {
+                            const result_id = c.nextStateId();
+                            var frag: ?Frag = null;
+                            for (0..min) |_| {
+                                const next_frag = try c.compileNode(ast, rep.node);
+                                if (frag) |f| f.outs.patch(c, next_frag.id);
+                                frag = next_frag;
+                            }
+                            const alt = try c.emitAlt2();
+                            const last_frag = frag.?; //  frag != null because `min` >= 2
+                            last_frag.outs.patch(c, alt);
+                            const outs = c.repetitionAlt(alt, last_frag.id, rep.lazy);
+                            return .{ .id = result_id, .outs = outs };
+                        },
+                    }
+                },
+                .between => |b| {
+                    if (b.max == 0) return c.compileEmpty();
+                    if (b.max == 1 and b.min == 0) continue :rep_kind Kind.zero_or_one;
+                    if (b.max == b.min) continue :rep_kind .{ .exactly = b.min };
+                    const result_id = c.nextStateId();
+                    // Compile repeat arg node min times (can be 0)
+                    var frag: ?Frag = null;
+                    for (0..b.min) |_| {
+                        const next_frag = try c.compileNode(ast, rep.node);
+                        if (frag) |f| f.outs.patch(c, next_frag.id);
+                        frag = next_frag;
+                    }
+
+                    // For (max - min) times, create this shape (lazy = false):
+                    // alt2: left  -> arg node (arg node: out -> the next alt2)
+                    //       right -> dangling
+                    // When lazy = true, left and right are reversed.
+                    // This loop runs at least once because max < min case is handled
+                    // in parsing phase, max == min case is sent to .exactly case.
+                    assert(b.max > b.min);
+                    var outs: PatchList = .empty;
+                    for (0..b.max - b.min) |_| {
+                        const alt = try c.emitAlt2();
+                        const repeat_arg = try c.compileNode(ast, rep.node);
+                        outs = outs.append(c, c.repetitionAlt(alt, repeat_arg.id, rep.lazy));
+                        if (frag) |f| f.outs.patch(c, alt);
+                        frag = .{ .id = alt, .outs = repeat_arg.outs };
+                    }
+                    // frag != null because the loop ran at least once
+                    outs = outs.append(c, frag.?.outs);
+                    return .{ .id = result_id, .outs = outs };
+                },
+            }
+        },
     }
+}
+
+fn nextStateId(c: *Compiler) StateId {
+    return @intCast(c.states.items.len + 1);
 }
 
 fn emitState(c: *Compiler, state: State) !StateId {
@@ -140,6 +236,28 @@ fn emitState(c: *Compiler, state: State) !StateId {
     return state_id;
 }
 
+/// Emit State.alt2 with both ends dangling.
+fn emitAlt2(c: *Compiler) !StateId {
+    return c.emitState(.{ .alt2 = .{ .left = 0, .right = 0 } });
+}
+
+/// Helper to compile repetition. When `lazy` = false, creates the following shape:
+/// ```
+/// alt2: left  -> arg
+///       right -> next (dangling)
+/// ```
+/// When `lazy` = true, `left` and `right` are reversed.
+/// Returns the dangling patch list to `next`.
+fn repetitionAlt(c: *Compiler, alt: StateId, arg: StateId, lazy: bool) PatchList {
+    if (!lazy) {
+        c.states.items[alt] = .{ .alt2 = .{ .left = arg, .right = 0 } };
+        return .fromOneRight(alt);
+    } else {
+        c.states.items[alt] = .{ .alt2 = .{ .left = 0, .right = arg } };
+        return .fromOne(alt);
+    }
+}
+
 fn emitCommonRanges(c: *Compiler, range_start: CommonByteRange, len: Length, negated: bool) !StateId {
     return c.emitState(.{ .ranges = .{
         .start = @intFromEnum(range_start),
@@ -149,8 +267,10 @@ fn emitCommonRanges(c: *Compiler, range_start: CommonByteRange, len: Length, neg
     } });
 }
 
-fn nextStateId(c: *Compiler) StateId {
-    return @intCast(c.states.items.len + 1);
+/// Creates a Frag that only contains a single State.empty.
+fn compileEmpty(c: *Compiler) !Frag {
+    const id = try c.emitState(.{ .empty = .{ .out = 0 } });
+    return .{ .id = id, .outs = .fromOne(id) };
 }
 
 /// A compiled fragment returned by compileNode.
@@ -176,6 +296,13 @@ const PatchList = struct {
     fn fromOne(id: StateId) PatchList {
         assert(id < (1 << 31));
         const ptr: Ptr = .{ .id = @truncate(id), .field = .left };
+        return .{ .head = ptr, .tail = ptr };
+    }
+
+    /// Like `fromOne`, but encode the patch target to .right.
+    fn fromOneRight(id: StateId) PatchList {
+        assert(id < (1 << 31));
+        const ptr: Ptr = .{ .id = @truncate(id), .field = .right };
         return .{ .head = ptr, .tail = ptr };
     }
 
@@ -288,36 +415,213 @@ test "basic compile" {
     const states = prog.states;
     try expect(states.len == 20);
 
-    // try expect(states[1].char.byte == 'a');
-    // try expect(states[1].char.out == 2);
-    //
-    // try expect(states[2].alt.start == 0);
-    // try expect(states[2].alt.len == 3);
-    // try expect(prog.branches[0] == 3);
-    // try expect(prog.branches[1] == 6);
-    // try expect(prog.branches[2] == 7);
-    //
-    // try expect(states[3].alt2.left == 4);
-    // try expect(states[3].alt2.right == 5);
-    // try expect(states[4].char.byte == 'b');
-    // try expect(states[4].char.out == 8);
-    // try expect(states[5].char.byte == 'c');
-    // try expect(states[5].char.out == 8);
-    // try expect(states[6].ranges.out == 8);
-    // try expect(states[6].ranges.start == 2);
-    // try expect(states[6].ranges.len == 1);
-    // try expect(states[7].empty.out == 8);
-    //
-    // try expect(states[8].alt2.left == 9);
-    // try expect(states[8].alt2.right == 10);
-    // try expect(states[9].char.byte == 'x');
-    // try expect(states[9].char.out == 11);
-    // try expect(states[10].char.byte == 'y');
-    // try expect(states[10].char.out == 11);
-    // try expect(states[11].char.byte == 'z');
-    // try expect(states[11].char.out == 12);
-    //
-    // try expect(prog.ranges.len == 6);
-    // try expect(prog.ranges[2].from == '0');
-    // try expect(prog.ranges[2].to == '9');
+    try expect(states[1].char.byte == 'a');
+    try expect(states[1].char.out == 2);
+
+    try expect(states[3].alt.start == 0);
+    try expect(states[3].alt.len == 3);
+    try expect(prog.branches[0] == 4);
+    try expect(prog.branches[1] == 9);
+    try expect(prog.branches[2] == 10);
+
+    try expect(states[5].alt2.left == 6);
+    try expect(states[5].alt2.right == 7);
+    try expect(states[6].char.byte == 'b');
+    try expect(states[6].char.out == 8);
+    try expect(states[7].char.byte == 'c');
+    try expect(states[7].char.out == 8);
+    try expect(states[9].ranges.out == 11);
+    try expect(states[9].ranges.start == 2);
+    try expect(states[9].ranges.len == 1);
+    try expect(states[10].empty.out == 11);
+
+    try expect(states[13].alt2.left == 14);
+    try expect(states[13].alt2.right == 15);
+    try expect(states[14].char.byte == 'x');
+    try expect(states[14].char.out == 16);
+    try expect(states[15].char.byte == 'y');
+    try expect(states[15].char.out == 16);
+    try expect(states[17].char.byte == 'z');
+    try expect(states[17].char.out == 18);
+
+    try expect(prog.ranges.len == 6);
+    try expect(prog.ranges[2].from == '0');
+    try expect(prog.ranges[2].to == '9');
+}
+
+test "basic repetition" {
+    const a = testing.allocator;
+    const expect = testing.expect;
+
+    {
+        var prog = try Compiler.compile(a, "a?");
+        defer prog.deinit();
+
+        const states = prog.states;
+        try expect(states.len == 5);
+        try expect(states[0].capture.out == 1);
+        try expect(states[1].alt2.left == 2);
+        try expect(states[1].alt2.right == 3);
+        try expect(states[2].char.byte == 'a');
+        try expect(states[2].char.out == 3);
+        try expect(states[3].capture.out == 4);
+    }
+
+    {
+        var prog = try Compiler.compile(a, "a*");
+        defer prog.deinit();
+
+        const states = prog.states;
+        try expect(states.len == 5);
+        try expect(states[0].capture.out == 1);
+        try expect(states[1].alt2.left == 2);
+        try expect(states[1].alt2.right == 3);
+        try expect(states[2].char.byte == 'a');
+        try expect(states[2].char.out == 1);
+        try expect(states[3].capture.out == 4);
+    }
+
+    {
+        var prog = try Compiler.compile(a, "a+");
+        defer prog.deinit();
+
+        const states = prog.states;
+        try expect(states.len == 5);
+        try expect(states[0].capture.out == 1);
+        try expect(states[1].char.byte == 'a');
+        try expect(states[1].char.out == 2);
+        try expect(states[2].alt2.left == 1);
+        try expect(states[2].alt2.right == 3);
+        try expect(states[3].capture.out == 4);
+    }
+
+    {
+        var prog = try Compiler.compile(a, "a??");
+        defer prog.deinit();
+
+        const states = prog.states;
+        try expect(states.len == 5);
+        try expect(states[0].capture.out == 1);
+        try expect(states[1].alt2.left == 3);
+        try expect(states[1].alt2.right == 2);
+        try expect(states[2].char.byte == 'a');
+        try expect(states[2].char.out == 3);
+        try expect(states[3].capture.out == 4);
+    }
+
+    {
+        var prog = try Compiler.compile(a, "a*?");
+        defer prog.deinit();
+
+        const states = prog.states;
+        try expect(states.len == 5);
+        try expect(states[0].capture.out == 1);
+        try expect(states[1].alt2.left == 3);
+        try expect(states[1].alt2.right == 2);
+        try expect(states[2].char.byte == 'a');
+        try expect(states[2].char.out == 1);
+        try expect(states[3].capture.out == 4);
+    }
+
+    {
+        var prog = try Compiler.compile(a, "a+?");
+        defer prog.deinit();
+
+        const states = prog.states;
+        try expect(states.len == 5);
+        try expect(states[0].capture.out == 1);
+        try expect(states[1].char.byte == 'a');
+        try expect(states[1].char.out == 2);
+        try expect(states[2].alt2.left == 3);
+        try expect(states[2].alt2.right == 1);
+        try expect(states[3].capture.out == 4);
+    }
+}
+test "counted repetition" {
+    const a = testing.allocator;
+    const expect = testing.expect;
+    {
+        var prog = try Compiler.compile(a, "a{3}");
+        defer prog.deinit();
+        const states = prog.states;
+        try expect(states.len == 6);
+        try expect(states[0].capture.out == 1);
+        try expect(states[1].char.byte == 'a');
+        try expect(states[1].char.out == 2);
+        try expect(states[2].char.byte == 'a');
+        try expect(states[2].char.out == 3);
+        try expect(states[3].char.byte == 'a');
+        try expect(states[3].char.out == 4);
+        try expect(states[4].capture.out == 5);
+    }
+    {
+        var prog = try Compiler.compile(a, "a{2,}");
+        defer prog.deinit();
+        const states = prog.states;
+        try expect(states.len == 6);
+        try expect(states[0].capture.out == 1);
+        try expect(states[1].char.byte == 'a');
+        try expect(states[1].char.out == 2);
+        try expect(states[2].char.byte == 'a');
+        try expect(states[2].char.out == 3);
+        try expect(states[3].alt2.left == 2);
+        try expect(states[3].alt2.right == 4);
+        try expect(states[4].capture.out == 5);
+    }
+    {
+        var prog = try Compiler.compile(a, "a{2,}?");
+        defer prog.deinit();
+        const states = prog.states;
+        try expect(states.len == 6);
+        try expect(states[0].capture.out == 1);
+        try expect(states[1].char.byte == 'a');
+        try expect(states[1].char.out == 2);
+        try expect(states[2].char.byte == 'a');
+        try expect(states[2].char.out == 3);
+        try expect(states[3].alt2.left == 4);
+        try expect(states[3].alt2.right == 2);
+        try expect(states[4].capture.out == 5);
+    }
+    {
+        var prog = try Compiler.compile(a, "a{2,4}");
+        defer prog.deinit();
+        const states = prog.states;
+        try expect(states.len == 9);
+        try expect(states[0].capture.out == 1);
+        try expect(states[1].char.byte == 'a');
+        try expect(states[1].char.out == 2);
+        try expect(states[2].char.byte == 'a');
+        try expect(states[2].char.out == 3);
+        try expect(states[3].alt2.left == 4);
+        try expect(states[3].alt2.right == 7);
+        try expect(states[4].char.byte == 'a');
+        try expect(states[4].char.out == 5);
+        try expect(states[5].alt2.left == 6);
+        try expect(states[5].alt2.right == 7);
+        try expect(states[6].char.byte == 'a');
+        try expect(states[6].char.out == 7);
+        try expect(states[7].capture.out == 8);
+    }
+
+    {
+        var prog = try Compiler.compile(a, "a{2,4}?");
+        defer prog.deinit();
+
+        const states = prog.states;
+        try expect(states.len == 9);
+        try expect(states[0].capture.out == 1);
+        try expect(states[1].char.byte == 'a');
+        try expect(states[1].char.out == 2);
+        try expect(states[2].char.byte == 'a');
+        try expect(states[2].char.out == 3);
+        try expect(states[3].alt2.left == 7);
+        try expect(states[3].alt2.right == 4);
+        try expect(states[4].char.byte == 'a');
+        try expect(states[4].char.out == 5);
+        try expect(states[5].alt2.left == 7);
+        try expect(states[5].alt2.right == 6);
+        try expect(states[6].char.byte == 'a');
+        try expect(states[6].char.out == 7);
+        try expect(states[7].capture.out == 8);
+    }
 }

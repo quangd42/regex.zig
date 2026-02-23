@@ -129,15 +129,19 @@ pub fn dumpDebug(prog: Program) void {
                 );
             },
             .empty => |pl| std.debug.print("{d:>3} {s:<8}         out={d:<3}\n", .{ i, @tagName(state), pl.out }),
+            .capture => |pl| std.debug.print(
+                "{d:>3} {s:<8} slot={d}  out={d:<3}\n",
+                .{ i, @tagName(state), pl.slot, pl.out },
+            ),
             .match => std.debug.print("{d:>3} {s:<8}\n", .{ i, @tagName(state) }),
             .fail => std.debug.print("{d:>3} {s:<8}\n", .{ i, @tagName(state) }),
         }
     }
 
-    std.debug.print("\nRanges:\n", .{});
-    for (prog.ranges, 0..) |range, i| {
-        std.debug.print("{d:>3} {{ from = {c}, to = {c} }}\n", .{ i, range.from, range.to });
-    }
+    // std.debug.print("\nRanges:\n", .{});
+    // for (prog.ranges, 0..) |range, i| {
+    //     std.debug.print("{d:>3} {{ from = {c}, to = {c} }}\n", .{ i, range.from, range.to });
+    // }
 }
 
 const std = @import("std");

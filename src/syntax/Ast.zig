@@ -13,6 +13,7 @@ pub const Node = union(enum) {
     group: Group,
     alternation: Alternation,
     concat: Concat,
+    repetition: Repetition,
     // assertion: Assertion,
 
     pub const Index = u32;
@@ -25,11 +26,7 @@ pub const Node = union(enum) {
         kind: Kind,
         negated: bool,
 
-        const Kind = enum {
-            digit,
-            word,
-            space,
-        };
+        const Kind = enum { digit, word, space };
     };
 
     pub const Group = struct {
@@ -42,6 +39,23 @@ pub const Node = union(enum) {
 
     pub const Concat = struct {
         nodes: []Index,
+    };
+
+    pub const Repetition = struct {
+        kind: Kind,
+        node: Index,
+        lazy: bool, // false = greedy
+
+        /// Repetition count is capped at 1000 during parsing,
+        /// so an u16 is enough.
+        pub const Kind = union(enum) {
+            zero_or_one,
+            zero_or_more,
+            one_or_more,
+            exactly: u16,
+            at_least: u16,
+            between: struct { min: u16, max: u16 },
+        };
     };
 };
 
@@ -83,6 +97,18 @@ fn formatNode(self: @This(), writer: *std.Io.Writer, index: Node.Index) std.Io.W
                 try self.formatNode(writer, node_index);
             }
         },
+        .repetition => |r| {
+            try self.formatNode(writer, r.node);
+            switch (r.kind) {
+                .zero_or_one => try writer.printAsciiChar('?', .{}),
+                .zero_or_more => try writer.printAsciiChar('*', .{}),
+                .one_or_more => try writer.printAsciiChar('+', .{}),
+                .exactly => |b| try writer.print("{{{d}}}", .{b}),
+                .at_least => |b| try writer.print("{{{d},}}", .{b}),
+                .between => |b| try writer.print("{{{d},{d}}}", .{ b.min, b.max }),
+            }
+            if (r.lazy) try writer.printAsciiChar('?', .{});
+        },
         // .assertion => |a| {
         //     switch (a.kind) {
         //         .start_line_or_string => try writer.printAsciiChar('^', .{}),
@@ -90,4 +116,12 @@ fn formatNode(self: @This(), writer: *std.Io.Writer, index: Node.Index) std.Io.W
         //     }
         // },
     }
+}
+
+test "maximum Node size" {
+    const expected = 3 * @sizeOf(usize);
+    std.testing.expect(@sizeOf(Node) <= expected) catch {
+        std.debug.print("Expected Node size = {d}, got {d}\n", .{ expected, @sizeOf(Node) });
+        return error.TestUnexpectedResult;
+    };
 }

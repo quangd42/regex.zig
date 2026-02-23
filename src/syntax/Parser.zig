@@ -13,9 +13,14 @@ const assert = std.debug.assert;
 /// Parser errors surfaced to callers.
 pub const Error = error{
     InvalidEscape,
-    TrailingBackslash, // Escape at EOF
-    UnexpectedParen, // Closing nonexistent group
-    MissingParen, // Group not closed
+    EscapeAtEof,
+    UnexpectedGroupClose,
+    GroupNotClosed,
+    RepeatCountNotClosed,
+    MissingRepeatArgument, // '*', '+', '?' as first item in pattern
+    RepeatCountEmpty,
+    InvalidRepeatSize,
+    InvalidRepeatCountFormat,
     OutOfMemory,
 };
 
@@ -50,12 +55,20 @@ fn atEnd(p: *Parser) bool {
     return p.offset >= p.pattern.len;
 }
 
-inline fn char(p: *Parser) u8 {
+fn char(p: *Parser) u8 {
     return p.pattern[p.offset];
 }
 
-inline fn eat(p: *Parser) void {
+fn eat(p: *Parser) void {
     p.offset += 1;
+}
+
+fn eatIf(p: *Parser, target: u8) bool {
+    if (!p.atEnd() and p.char() == target) {
+        p.eat();
+        return true;
+    }
+    return false;
 }
 
 fn peek(p: *Parser) ?u8 {
@@ -75,6 +88,10 @@ pub fn parse(p: *Parser) !Ast {
             '(' => concat = try p.pushGroup(concat),
             ')' => concat = try p.popGroup(concat),
             '|' => concat = try p.pushAlt(concat),
+            '*' => try p.parseRepetition(concat, .star),
+            '+' => try p.parseRepetition(concat, .plus),
+            '?' => try p.parseRepetition(concat, .question),
+            '{' => try p.parseRepetition(concat, .range),
             else => try concat.append(a, try p.parseAtom()),
         }
     }
@@ -134,7 +151,7 @@ fn popGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
     assert(p.char() == ')');
     p.eat();
     const a = p.arena.allocator();
-    const prev_group_state = p.group_stack.pop() orelse return error.UnexpectedParen;
+    const prev_group_state = p.group_stack.pop() orelse return error.UnexpectedGroupClose;
     switch (prev_group_state) {
         .concat => |prev_concat| {
             // cur_concat contains the content of the Group node
@@ -146,7 +163,7 @@ fn popGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
         .alt => |alt| {
             // cur_concat is the else branch of last alternation, pop stack once more to find prev_concat
             try alt.append(a, try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } }));
-            const prev_prev_group_state = p.group_stack.pop() orelse return error.UnexpectedParen;
+            const prev_prev_group_state = p.group_stack.pop() orelse return error.UnexpectedGroupClose;
             switch (prev_prev_group_state) {
                 .concat => |prev_concat| {
                     const alt_index = try p.addNode(.{ .alternation = .{ .nodes = try alt.toOwnedSlice(a) } });
@@ -167,7 +184,7 @@ fn popGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
 /// Otherwise an error is returned.
 fn popGroupAtEnd(p: *Parser, cur_concat: *NodeList) !void {
     if (p.group_stack.items.len > 1) {
-        return error.MissingParen;
+        return error.GroupNotClosed;
     }
     const a = p.arena.allocator();
 
@@ -178,7 +195,7 @@ fn popGroupAtEnd(p: *Parser, cur_concat: *NodeList) !void {
     };
 
     switch (prev_group_state) {
-        .concat => return error.MissingParen,
+        .concat => return error.GroupNotClosed,
         .alt => |alt| {
             // valid: return the final alt node
             const concat_index = try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
@@ -192,7 +209,7 @@ fn parseEscape(p: *Parser) !Node.Index {
     assert(p.char() == '\\');
     p.eat();
 
-    if (p.atEnd()) return error.TrailingBackslash;
+    if (p.atEnd()) return error.EscapeAtEof;
     const out: Node = switch (p.char()) {
         'd' => .{ .class_perl = .{ .kind = .digit, .negated = false } },
         'D' => .{ .class_perl = .{ .kind = .digit, .negated = true } },
@@ -206,6 +223,44 @@ fn parseEscape(p: *Parser) !Node.Index {
     return p.addNode(out);
 }
 
+fn parseRepetition(
+    p: *Parser,
+    concat: *NodeList,
+    kind: enum { star, plus, question, range },
+) !void {
+    const c = p.char();
+    assert(c == '*' or c == '+' or c == '?' or c == '{');
+    p.eat();
+
+    if (concat.items.len == 0) return error.MissingRepeatArgument;
+    const last_concat_node = concat.items[concat.items.len - 1];
+
+    const rep_kind: Node.Repetition.Kind =
+        switch (kind) {
+            .question => .zero_or_one,
+            .star => .zero_or_more,
+            .plus => .one_or_more,
+            .range => b: {
+                const min = try p.parseDecimal();
+                if (p.eatIf('}')) {
+                    break :b .{ .exactly = min };
+                }
+                if (!p.eatIf(',')) return error.InvalidRepeatCountFormat;
+                if (p.eatIf('}')) break :b .{ .at_least = min };
+                if (p.atEnd()) return error.RepeatCountNotClosed;
+                const max = try p.parseDecimal();
+                if (max < min) return error.InvalidRepeatSize;
+                if (!p.eatIf('}')) return error.RepeatCountNotClosed;
+                break :b .{ .between = .{ .min = min, .max = max } };
+            },
+        };
+    const lazy = p.eatIf('?');
+    const repeat_node = try p.addNode(.{
+        .repetition = .{ .kind = rep_kind, .lazy = lazy, .node = last_concat_node },
+    });
+    concat.items[concat.items.len - 1] = repeat_node;
+}
+
 fn parseAtom(p: *Parser) Error!Node.Index {
     switch (p.char()) {
         '\\' => return p.parseEscape(),
@@ -214,6 +269,26 @@ fn parseAtom(p: *Parser) Error!Node.Index {
             return p.addNode(.{ .literal = .{ .char = c } });
         },
     }
+}
+
+fn parseDecimal(p: *Parser) !u32 {
+    var pos = p.offset;
+    while (pos < p.pattern.len) : (pos += 1) {
+        const ch = p.pattern[pos];
+        if (ch < '0' or ch > '9') break;
+    }
+    if (pos == p.offset) return error.RepeatCountEmpty;
+
+    // NOTE: Limit the value of parsed decimal to 1000 to avoid pathological NFA growth.
+    // This limit is used by RE2 familly (Go, Rust) so we're following suit.
+    const max = 1000;
+    var out: u32 = 0;
+    for (p.pattern[p.offset..pos]) |c| {
+        out = out * 10 + c - '0';
+        if (out > max) return error.InvalidRepeatSize;
+    }
+    p.offset = pos;
+    return out;
 }
 
 const testing = std.testing;
@@ -245,6 +320,13 @@ test "parse to string round trip" {
 
         // parse atom & concat
         "ab.\\d\\D\\w\\W\\s\\S",
+
+        // parse repetition
+        "(a|b)?c*d+",
+        "(a|b)??c*?d+?",
+        "(a|b|c){5}|(a|b|c){5}?",
+        "(a|b|c){5,}|(a|b|c){5,}",
+        "(a|b|c){5,10}|(a|b|c){5,10}",
     };
 
     for (patterns) |pattern| {
@@ -261,7 +343,23 @@ test "parse errors" {
     }{
         .{
             .pattern = "a|b\\", // trailing backslash
-            .expected = error.TrailingBackslash,
+            .expected = error.EscapeAtEof,
+        },
+        .{
+            .pattern = "*",
+            .expected = error.MissingRepeatArgument,
+        },
+        .{
+            .pattern = "a{,}",
+            .expected = error.RepeatCountEmpty,
+        },
+        .{
+            .pattern = "a{5,",
+            .expected = error.RepeatCountNotClosed,
+        },
+        .{
+            .pattern = "a{5.0}",
+            .expected = error.InvalidRepeatCountFormat,
         },
     };
 

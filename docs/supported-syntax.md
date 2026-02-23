@@ -16,20 +16,20 @@ Legend:
 | Escaped literals | planned |
 | Dot (.) | planned |
 | Concatenation | done |
-| Alternation (|) | done |
+| Alternation (\|) | done |
 | Grouping (...) | done |
 
 ## Repetition
 
 | Feature | PikeVM (NFA) |
 | --- | --- |
-| ? | planned |
-| * | planned |
-| + | planned |
-| {m} | planned |
-| {m,} | planned |
-| {m,n} | planned |
-| Lazy quantifiers (*?, +?, ??, {m,n}?) | planned |
+| ? | done |
+| * | done |
+| + | done |
+| {m} | done |
+| {m,} | done |
+| {m,n} | done |
+| Lazy quantifiers (*?, +?, ??, {m,n}?) | done |
 | Possessive quantifiers (*+, ++, ?+, {m,n}+) | not supported |
 
 ## Character Classes

@@ -12,6 +12,15 @@ const Case = struct {
 
 const cases = [_]Case{
     .{
+        .name = "basic133",
+        .pattern = "(a*)*",
+        .haystack = "-",
+        .expected = &[_]?Match{ .{ .start = 0, .end = 0 }, .{ .start = 0, .end = 0 } },
+    },
+};
+
+const all_cases = [_]Case{
+    .{
         .name = "basic5",
         .pattern = "XXXXXX",
         .haystack = "..XXXXXX",
@@ -90,6 +99,60 @@ const cases = [_]Case{
         .expected = &[_]?Match{.{ .start = 2, .end = 5 }},
     },
     .{
+        .name = "basic97",
+        .pattern = "ab*c",
+        .haystack = "abc",
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
+    },
+    .{
+        .name = "basic98",
+        .pattern = "ab*bc",
+        .haystack = "abc",
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
+    },
+    .{
+        .name = "basic99",
+        .pattern = "ab*bc",
+        .haystack = "abbc",
+        .expected = &[_]?Match{.{ .start = 0, .end = 4 }},
+    },
+    .{
+        .name = "basic100",
+        .pattern = "ab*bc",
+        .haystack = "abbbbc",
+        .expected = &[_]?Match{.{ .start = 0, .end = 6 }},
+    },
+    .{
+        .name = "basic101",
+        .pattern = "ab+bc",
+        .haystack = "abbc",
+        .expected = &[_]?Match{.{ .start = 0, .end = 4 }},
+    },
+    .{
+        .name = "basic102",
+        .pattern = "ab+bc",
+        .haystack = "abbbbc",
+        .expected = &[_]?Match{.{ .start = 0, .end = 6 }},
+    },
+    .{
+        .name = "basic103",
+        .pattern = "ab?bc",
+        .haystack = "abbc",
+        .expected = &[_]?Match{.{ .start = 0, .end = 4 }},
+    },
+    .{
+        .name = "basic104",
+        .pattern = "ab?bc",
+        .haystack = "abc",
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
+    },
+    .{
+        .name = "basic105",
+        .pattern = "ab?c",
+        .haystack = "abc",
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
+    },
+    .{
         .name = "basic124",
         .pattern = "ab|cd",
         .haystack = "abc",
@@ -100,6 +163,60 @@ const cases = [_]Case{
         .pattern = "ab|cd",
         .haystack = "abcd",
         .expected = &[_]?Match{.{ .start = 0, .end = 2 }},
+    },
+    .{
+        .name = "basic131",
+        .pattern = "a+b+c",
+        .haystack = "aabbabc",
+        .expected = &[_]?Match{.{ .start = 4, .end = 7 }},
+    },
+    .{
+        .name = "basic132",
+        .pattern = "a*",
+        .haystack = "aaa",
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
+    },
+    // .{
+    //     .name = "basic133",
+    //     .pattern = "(a*)*",
+    //     .haystack = "-",
+    //     .expected = &[_]?Match{ .{ .start = 0, .end = 0 }, .{ .start = 0, .end = 0 } },
+    // },
+    // .{
+    //     .name = "basic134",
+    //     .pattern = "(a*)+",
+    //     .haystack = "-",
+    //     .expected = &[_]?Match{ .{ .start = 0, .end = 0 }, .{ .start = 0, .end = 0 } },
+    // },
+    // .{
+    //     .name = "basic135",
+    //     .pattern = "(a*|b)*",
+    //     .haystack = "-",
+    //     .expected = &[_]?Match{ .{ .start = 0, .end = 0 }, .{ .start = 0, .end = 0 } },
+    // },
+    .{
+        .name = "basic136",
+        .pattern = "(a+|b)*",
+        .haystack = "ab",
+        .expected = &[_]?Match{ .{ .start = 0, .end = 2 }, .{ .start = 1, .end = 2 } },
+    },
+    .{
+        .name = "basic137",
+        .pattern = "(a+|b)+",
+        .haystack = "ab",
+        .expected = &[_]?Match{ .{ .start = 0, .end = 2 }, .{ .start = 1, .end = 2 } },
+    },
+    .{
+        .name = "basic138",
+        .pattern = "(a+|b)?",
+        .haystack = "ab",
+        .expected = &[_]?Match{ .{ .start = 0, .end = 1 }, .{ .start = 0, .end = 1 } },
+    },
+    .{
+        .name = "basic141",
+        .pattern = "a*",
+        .haystack = "",
+        .expected = &[_]?Match{.{ .start = 0, .end = 0 }},
     },
     .{
         .name = "basic144",
@@ -209,6 +326,30 @@ const cases = [_]Case{
         .haystack = "ef",
         .expected = &[_]?Match{ .{ .start = 0, .end = 2 }, .{ .start = 0, .end = 1 } },
     },
+    // .{
+    //     .name = "basic146",
+    //     .pattern = "((a*|b))*",
+    //     .haystack = "-",
+    //     .expected = &[_]?Match{ .{ .start = 0, .end = 0 }, .{ .start = 0, .end = 0 }, .{ .start = 0, .end = 0 } },
+    // },
+    .{
+        .name = "basic147",
+        .pattern = "abcd*efg",
+        .haystack = "abcdefg",
+        .expected = &[_]?Match{.{ .start = 0, .end = 7 }},
+    },
+    .{
+        .name = "basic148",
+        .pattern = "ab*",
+        .haystack = "xabyabbbz",
+        .expected = &[_]?Match{.{ .start = 1, .end = 3 }},
+    },
+    .{
+        .name = "basic149",
+        .pattern = "ab*",
+        .haystack = "xayabbbz",
+        .expected = &[_]?Match{.{ .start = 1, .end = 2 }},
+    },
     .{
         .name = "basic150",
         .pattern = "(ab|cd)e",
@@ -216,10 +357,58 @@ const cases = [_]Case{
         .expected = &[_]?Match{ .{ .start = 2, .end = 5 }, .{ .start = 2, .end = 4 } },
     },
     .{
+        .name = "basic152",
+        .pattern = "(a|b)c*d",
+        .haystack = "abcd",
+        .expected = &[_]?Match{ .{ .start = 1, .end = 4 }, .{ .start = 1, .end = 2 } },
+    },
+    .{
+        .name = "basic153",
+        .pattern = "(ab|ab*)bc",
+        .haystack = "abc",
+        .expected = &[_]?Match{ .{ .start = 0, .end = 3 }, .{ .start = 0, .end = 1 } },
+    },
+    // .{
+    //     .name = "basic154",
+    //     .pattern = "a([bc]*)c*",
+    //     .haystack = "abc",
+    //     .expected = &[_]?Match{ .{ .start = 0, .end = 3 }, .{ .start = 1, .end = 3 } },
+    // },
+    // .{
+    //     .name = "basic155",
+    //     .pattern = "a([bc]*)(c*d)",
+    //     .haystack = "abcd",
+    //     .expected = &[_]?Match{ .{ .start = 0, .end = 4 }, .{ .start = 1, .end = 3 }, .{ .start = 3, .end = 4 } },
+    // },
+    // .{
+    //     .name = "basic156",
+    //     .pattern = "a([bc]+)(c*d)",
+    //     .haystack = "abcd",
+    //     .expected = &[_]?Match{ .{ .start = 0, .end = 4 }, .{ .start = 1, .end = 3 }, .{ .start = 3, .end = 4 } },
+    // },
+    // .{
+    //     .name = "basic157",
+    //     .pattern = "a([bc]*)(c+d)",
+    //     .haystack = "abcd",
+    //     .expected = &[_]?Match{ .{ .start = 0, .end = 4 }, .{ .start = 1, .end = 2 }, .{ .start = 2, .end = 4 } },
+    // },
+    .{
+        .name = "basic159",
+        .pattern = "(ab|a)b*c",
+        .haystack = "abc",
+        .expected = &[_]?Match{ .{ .start = 0, .end = 3 }, .{ .start = 0, .end = 2 } },
+    },
+    .{
         .name = "basic160",
         .pattern = "((a)(b)c)(d)",
         .haystack = "abcd",
         .expected = &[_]?Match{ .{ .start = 0, .end = 4 }, .{ .start = 0, .end = 3 }, .{ .start = 0, .end = 1 }, .{ .start = 1, .end = 2 }, .{ .start = 3, .end = 4 } },
+    },
+    .{
+        .name = "basic189",
+        .pattern = "a+(b|c)*d+",
+        .haystack = "aabcdd",
+        .expected = &[_]?Match{ .{ .start = 0, .end = 6 }, .{ .start = 3, .end = 4 } },
     },
     .{
         .name = "basic197",
@@ -299,9 +488,13 @@ test "fowler basic subset" {
     const testing = std.testing;
     const gpa = testing.allocator;
 
-    for (cases) |tc| {
+    const verbose = false;
+
+    for (all_cases) |tc| {
         var re = try Regex.compile(gpa, tc.pattern);
         defer re.deinit();
+
+        if (verbose) re.engine.prog.dumpDebug();
 
         if (!re.match(tc.haystack)) {
             std.debug.print("FAIL [{s}] match() returned false\n", .{tc.name});
@@ -337,5 +530,6 @@ test "fowler basic subset" {
                 return error.TestExpectedEqual;
             };
         }
+        if (verbose) std.debug.print("{s} passed.\n", .{tc.name});
     }
 }

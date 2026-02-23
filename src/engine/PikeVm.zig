@@ -105,8 +105,8 @@ fn search(vm: *Vm, comptime mode: Mode, haystack: []const u8) ?[]const Offset {
 /// Otherwise returns the offset of the literal value in the haystack.
 fn literalPrefixOffset(vm: *Vm, haystack: []const u8) ?Offset {
     if (vm.prog.literalPrefix()) |byte| {
-        // TODO: use memchr with SIMD to find position of first byte.
-        // indexOfScalar() is a linear search. Same for find().
+        // NOTE: indexOfScalar() already uses simd if possible under the hood,
+        // but perhaps it can be tuned specifically for this use case.
         const i = std.mem.indexOfScalar(u8, haystack, byte) orelse return null;
         return @intCast(i);
     }

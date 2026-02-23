@@ -18,9 +18,7 @@ pub fn build(b: *std.Build) void {
     });
     // There is no `b.installArtifact(exe_check);` here.
 
-    // Finally we add the "check" step which will be detected
-    // by ZLS and automatically enable Build-On-Save.
-    const check = b.step("check", "Check if zlox compiles");
+    const check = b.step("check", "Check if compile");
     check.dependOn(&exe_check.step);
 
     // Test step for module
