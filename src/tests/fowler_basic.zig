@@ -27,6 +27,12 @@ const all_cases = [_]Case{
         .expected = &[_]?Match{.{ .start = 2, .end = 8 }},
     },
     .{
+        .name = "basic4",
+        .pattern = "a...b",
+        .haystack = "abababbb",
+        .expected = &[_]?Match{.{ .start = 2, .end = 7 }},
+    },
+    .{
         .name = "basic45",
         .pattern = "aba|bab|bba",
         .haystack = "baaabbbaba",
@@ -151,6 +157,24 @@ const all_cases = [_]Case{
         .pattern = "ab?c",
         .haystack = "abc",
         .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
+    },
+    .{
+        .name = "basic111",
+        .pattern = "a.c",
+        .haystack = "abc",
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
+    },
+    .{
+        .name = "basic112",
+        .pattern = "a.c",
+        .haystack = "axc",
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
+    },
+    .{
+        .name = "basic113",
+        .pattern = "a.*c",
+        .haystack = "axyzc",
+        .expected = &[_]?Match{.{ .start = 0, .end = 5 }},
     },
     .{
         .name = "basic124",
@@ -289,6 +313,24 @@ const all_cases = [_]Case{
         .pattern = "ab|abab",
         .haystack = "abbabab",
         .expected = &[_]?Match{.{ .start = 0, .end = 2 }},
+    },
+    .{
+        .name = "basic34",
+        .pattern = "a*(a.|aa)",
+        .haystack = "aaaa",
+        .expected = &[_]?Match{ .{ .start = 0, .end = 4 }, .{ .start = 2, .end = 4 } },
+    },
+    .{
+        .name = "basic41",
+        .pattern = "(.a|.b).*|.*(.a|.b)",
+        .haystack = "xa",
+        .expected = &[_]?Match{ .{ .start = 0, .end = 2 }, .{ .start = 0, .end = 2 }, null },
+    },
+    .{
+        .name = "basic48",
+        .pattern = "(a.|.a.)*|(a|.a...)",
+        .haystack = "aa",
+        .expected = &[_]?Match{ .{ .start = 0, .end = 2 }, .{ .start = 0, .end = 2 }, null },
     },
     .{
         .name = "basic49",

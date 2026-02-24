@@ -144,7 +144,7 @@ fn explore(
     var id = start;
     while (true) {
         switch (vm.prog.states[id]) {
-            .char, .ranges, .match, .fail => {
+            .char, .ranges, .any, .match, .fail => {
                 vm.next_states.add(mode, id, slots);
                 break;
             },
@@ -204,6 +204,7 @@ fn step(vm: *Vm, comptime mode: Mode, target: u8, at: Offset) ?[]const Offset {
                 // !s.negated and in_range or s.negated and !in_range
                 if (in_range != s.negated) vm.epsilonClosure(mode, s.out, at + 1, slots);
             },
+            .any => |s| vm.epsilonClosure(mode, s.out, at + 1, slots),
             .empty, .capture, .alt, .alt2 => {
                 // current_states cannot hold these states because epsilon_closure()
                 // makes sure to only capture `matchers` states.

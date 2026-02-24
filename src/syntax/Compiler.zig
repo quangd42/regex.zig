@@ -68,6 +68,10 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) !Frag {
             const id = try c.emitState(.{ .char = .{ .byte = lit.char, .out = 0 } });
             return .{ .id = id, .outs = .fromOne(id) };
         },
+        .dot => {
+            const id = try c.emitState(.{ .any = .{ .out = 0 } });
+            return .{ .id = id, .outs = .fromOne(id) };
+        },
         .class_perl => |cl| {
             // TODO: normalize ranges into (range_start, range_len)
             // if singleton => emitChar
@@ -230,7 +234,7 @@ fn emitState(c: *Compiler, state: State) !StateId {
     const state_id: StateId = @intCast(c.states.items.len);
     try c.states.append(c.arena.allocator(), state);
     switch (state) {
-        .char, .ranges, .fail, .match => c.matcher_count += 1,
+        .char, .ranges, .any, .fail, .match => c.matcher_count += 1,
         .empty, .capture, .alt, .alt2 => {},
     }
     return state_id;

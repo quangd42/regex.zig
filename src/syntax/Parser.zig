@@ -264,6 +264,10 @@ fn parseRepetition(
 fn parseAtom(p: *Parser) Error!Node.Index {
     switch (p.char()) {
         '\\' => return p.parseEscape(),
+        '.' => {
+            p.eat();
+            return p.addNode(.dot);
+        },
         else => |c| {
             p.eat();
             return p.addNode(.{ .literal = .{ .char = c } });

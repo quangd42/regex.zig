@@ -8,7 +8,7 @@ nodes: []Node,
 
 pub const Node = union(enum) {
     literal: Literal,
-    // dot,
+    dot,
     class_perl: ClassPerl,
     group: Group,
     alternation: Alternation,
@@ -71,7 +71,7 @@ fn formatNode(self: @This(), writer: *std.Io.Writer, index: Node.Index) std.Io.W
     const node = self.nodes[@intCast(index)];
     switch (node) {
         .literal => |l| try writer.printAsciiChar(l.char, .{}),
-        // .dot => try writer.printAsciiChar('.', .{}),
+        .dot => try writer.printAsciiChar('.', .{}),
         .class_perl => |cl| {
             const char: u8 = switch (cl.kind) {
                 .digit => if (cl.negated) 'D' else 'd',

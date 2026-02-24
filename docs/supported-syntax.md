@@ -14,7 +14,7 @@ Legend:
 | --- | --- |
 | Literals | done |
 | Escaped literals | planned |
-| Dot (.) | planned |
+| Dot (.) | done |
 | Concatenation | done |
 | Alternation (\|) | done |
 | Grouping (...) | done |

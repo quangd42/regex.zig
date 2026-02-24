@@ -36,7 +36,10 @@ pub const State = union(enum) {
     /// This state then stores the slice into the common array.
     ranges: struct { start: Index, len: Length, negated: bool, out: Id },
 
-    /// Unconditional epsilon transition.
+    /// Unconditional epsilon transition that consumes any input character.
+    any: struct { out: Id },
+
+    /// Unconditional epsilon transition that does not consume input.
     empty: struct { out: Id },
 
     /// Unconditional epsilon transition that carries the capture slot information (2k or 2k+1).
@@ -111,6 +114,8 @@ pub fn dumpDebug(prog: Program) void {
                     .{ i, @tagName(state), pl.out, pl.start, pl.len },
                 );
             },
+            .any => |pl| std.debug.print("{d:>3} {s:<8}         out={d:<3}\n", .{ i, @tagName(state), pl.out }),
+            .empty => |pl| std.debug.print("{d:>3} {s:<8}         out={d:<3}\n", .{ i, @tagName(state), pl.out }),
             .alt => |pl| {
                 std.debug.print(
                     "{d:>3} {s:<8}                  start={d:<3} len={d:<3}",
@@ -128,7 +133,6 @@ pub fn dumpDebug(prog: Program) void {
                     .{ i, @tagName(state), pl.left, pl.right },
                 );
             },
-            .empty => |pl| std.debug.print("{d:>3} {s:<8}         out={d:<3}\n", .{ i, @tagName(state), pl.out }),
             .capture => |pl| std.debug.print(
                 "{d:>3} {s:<8} slot={d}  out={d:<3}\n",
                 .{ i, @tagName(state), pl.slot, pl.out },
