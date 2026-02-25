@@ -18,8 +18,46 @@ pub const Node = union(enum) {
 
     pub const Index = u32;
 
-    pub const Literal = struct {
-        char: u8,
+    pub const Literal = union(Kind) {
+        /// Stored literal is the exact same as input.
+        verbatim: u8,
+        /// Parsed from escaped meta characters.
+        escaped: u8,
+        /// Parsed from C style escape characters such as `\n`, `\t`.
+        c_style: CStyle,
+        /// Parsed from hex escape '\xNN' such as '\x0B'
+        hex: u8,
+
+        pub const Kind = enum {
+            verbatim,
+            escaped,
+            c_style,
+            hex,
+        };
+
+        pub const CStyle = enum(u8) {
+            /// `\a` === `\x07`
+            bell = '\x07',
+            /// `\f` === `\x0C`
+            form_feed = '\x0C',
+            /// `\t` === `\x09`
+            tab = '\t',
+            /// `\n` === `\x0A`
+            line_feed = '\n',
+            /// `\r` === `\x0D`
+            carriage_return = '\r',
+            /// `\v` === `\x0B`
+            vertical_tab = '\x0B',
+            // `\ ` === `\x20`
+            // space,
+        };
+
+        pub fn char(self: @This()) u8 {
+            return switch (self) {
+                .c_style => |c| @intFromEnum(c),
+                inline else => |c| c,
+            };
+        }
     };
 
     pub const ClassPerl = struct {
@@ -70,7 +108,12 @@ pub fn format(
 fn formatNode(self: @This(), writer: *std.Io.Writer, index: Node.Index) std.Io.Writer.Error!void {
     const node = self.nodes[@intCast(index)];
     switch (node) {
-        .literal => |l| try writer.printAsciiChar(l.char, .{}),
+        .literal => |l| switch (l) {
+            .verbatim => |c| try writer.printAsciiChar(c, .{}),
+            .escaped => |c| try writer.print("\\{c}", .{c}),
+            .c_style => |c| try writer.printAsciiChar(@intFromEnum(c), .{}),
+            .hex => |c| try writer.print("\\x{x:0>2}", .{c}),
+        },
         .dot => try writer.printAsciiChar('.', .{}),
         .class_perl => |cl| {
             const char: u8 = switch (cl.kind) {

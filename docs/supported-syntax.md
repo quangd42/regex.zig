@@ -13,7 +13,7 @@ Legend:
 | Feature | PikeVM (NFA) |
 | --- | --- |
 | Literals | done |
-| Escaped literals | planned |
+| Escaped literals | done |
 | Dot (.) | done |
 | Concatenation | done |
 | Alternation (\|) | done |
@@ -80,10 +80,11 @@ Legend:
 
 | Feature | PikeVM (NFA) |
 | --- | --- |
-| Hex escapes (\xNN, \x{NN...}) | planned |
+| Hex escapes (\xNN) | done |
+| Hex escapes (\x{NN...}) | planned |
 | Unicode escapes (\uNNNN, \UNNNNNNNN) | planned |
 | Octal escapes (\NNN) | planned |
-| Named escapes (\n, \r, \t, etc.) | planned |
+| C-style escapes (\n, \r, \t, etc.) | done |
 | Literal mode \Q...\E | not supported |
 
 ## Lookaround

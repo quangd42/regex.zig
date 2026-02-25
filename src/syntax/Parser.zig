@@ -1,15 +1,3 @@
-const std = @import("std");
-const mem = std.mem;
-const Allocator = mem.Allocator;
-const ArenaAllocator = std.heap.ArenaAllocator;
-const ArrayList = std.ArrayList;
-
-const Ast = @import("Ast.zig");
-const Node = Ast.Node;
-const NodeList = ArrayList(Node.Index);
-
-const assert = std.debug.assert;
-
 /// Parser errors surfaced to callers.
 pub const Error = error{
     InvalidEscape,
@@ -69,11 +57,6 @@ fn eatIf(p: *Parser, target: u8) bool {
         return true;
     }
     return false;
-}
-
-fn peek(p: *Parser) ?u8 {
-    if (p.offset + 1 >= p.pattern.len) return null;
-    return p.pattern[p.offset + 1];
 }
 
 // --- parser funcs ---
@@ -172,7 +155,7 @@ fn popGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
                 },
                 .alt => {
                     // we never push alternation builder twice
-                    unreachable;
+                    panic("back to back `alt` builders on group_stack", .{});
                 },
             }
         },
@@ -210,17 +193,74 @@ fn parseEscape(p: *Parser) !Node.Index {
     p.eat();
 
     if (p.atEnd()) return error.EscapeAtEof;
-    const out: Node = switch (p.char()) {
-        'd' => .{ .class_perl = .{ .kind = .digit, .negated = false } },
-        'D' => .{ .class_perl = .{ .kind = .digit, .negated = true } },
-        'w' => .{ .class_perl = .{ .kind = .word, .negated = false } },
-        'W' => .{ .class_perl = .{ .kind = .word, .negated = true } },
-        's' => .{ .class_perl = .{ .kind = .space, .negated = false } },
-        'S' => .{ .class_perl = .{ .kind = .space, .negated = true } },
-        else => return error.InvalidEscape,
+    const c = p.char();
+
+    // This could just be helper functions for `p`.
+    // But there are a few other types of literal to come, so we can reassess then.
+    const LiteralBuilder = struct {
+        p: *Parser,
+
+        fn addEscaped(l: *@This(), byte: u8) !Node.Index {
+            l.p.eat();
+            return l.p.addNode(.{ .literal = .{ .escaped = byte } });
+        }
+
+        fn addC(l: *@This(), kind: Node.Literal.CStyle) !Node.Index {
+            l.p.eat();
+            return l.p.addNode(.{ .literal = .{ .c_style = kind } });
+        }
     };
+    var lb: LiteralBuilder = .{ .p = p };
+
+    return switch (c) {
+        'd', 'D', 'w', 'W', 's', 'S' => p.parsePerlClass(),
+        'a' => lb.addC(.bell),
+        'f' => lb.addC(.form_feed),
+        'n' => lb.addC(.line_feed),
+        'r' => lb.addC(.carriage_return),
+        't' => lb.addC(.tab),
+        'v' => lb.addC(.vertical_tab),
+        'x' => p.parseHex(),
+        // zig fmt: off
+        '\\', '.', '+', '*', '?', '(', ')', ',', '[', ']',
+        '{', '}', '^', '$', '#', '&', '-', '~' => lb.addEscaped(c),
+        // zig fmt: on
+        else => error.InvalidEscape,
+    };
+}
+
+fn parseHex(p: *Parser) !Node.Index {
+    assert(p.char() == 'x');
     p.eat();
-    return p.addNode(out);
+    if (p.offset + 2 > p.pattern.len) return error.InvalidEscape;
+    var byte: u8 = 0;
+    for (p.pattern[p.offset..][0..2]) |c| {
+        const d = switch (c) {
+            '0'...'9' => c - '0',
+            'a'...'f' => c - 'a' + 10,
+            'A'...'F' => c - 'A' + 10,
+            else => return error.InvalidEscape,
+        };
+        byte = (byte << 4) | d;
+    }
+    p.offset += 2;
+    return p.addNode(.{ .literal = .{ .hex = byte } });
+}
+
+fn parsePerlClass(p: *Parser) !Node.Index {
+    const c = p.char();
+    p.eat();
+    return p.addNode(.{
+        .class_perl = switch (c) {
+            'd' => .{ .kind = .digit, .negated = false },
+            'D' => .{ .kind = .digit, .negated = true },
+            'w' => .{ .kind = .word, .negated = false },
+            'W' => .{ .kind = .word, .negated = true },
+            's' => .{ .kind = .space, .negated = false },
+            'S' => .{ .kind = .space, .negated = true },
+            else => panic("expected Perl class character, got {c}\n", .{c}),
+        },
+    });
 }
 
 fn parseRepetition(
@@ -261,20 +301,6 @@ fn parseRepetition(
     concat.items[concat.items.len - 1] = repeat_node;
 }
 
-fn parseAtom(p: *Parser) Error!Node.Index {
-    switch (p.char()) {
-        '\\' => return p.parseEscape(),
-        '.' => {
-            p.eat();
-            return p.addNode(.dot);
-        },
-        else => |c| {
-            p.eat();
-            return p.addNode(.{ .literal = .{ .char = c } });
-        },
-    }
-}
-
 fn parseDecimal(p: *Parser) !u32 {
     var pos = p.offset;
     while (pos < p.pattern.len) : (pos += 1) {
@@ -295,15 +321,29 @@ fn parseDecimal(p: *Parser) !u32 {
     return out;
 }
 
+fn parseAtom(p: *Parser) Error!Node.Index {
+    switch (p.char()) {
+        '\\' => return p.parseEscape(),
+        '.' => {
+            p.eat();
+            return p.addNode(.dot);
+        },
+        else => |c| {
+            p.eat();
+            return p.addNode(.{ .literal = .{ .verbatim = c } });
+        },
+    }
+}
+
 const testing = std.testing;
 
-fn expectParseOk(gpa: Allocator, pattern: []const u8) !void {
+fn expectParseOk(gpa: Allocator, pattern: []const u8, expected: []const u8) !void {
     var parser: Parser = .init(gpa, pattern);
     defer parser.deinit();
     const ast = try parser.parse();
     var buffer: [256]u8 = undefined;
     const actual = try std.fmt.bufPrint(&buffer, "{f}", .{ast});
-    try testing.expectEqualStrings(pattern, actual);
+    try testing.expectEqualStrings(expected, actual);
 }
 
 fn expectParseError(gpa: Allocator, pattern: []const u8, expected: anyerror) !void {
@@ -323,7 +363,9 @@ test "parse to string round trip" {
         "|a",
 
         // parse atom & concat
-        "ab.\\d\\D\\w\\W\\s\\S",
+        "ab.\\d\\D\\w\\W\\s\\S", // perl
+        "\\\\\\.\\[\\]\\.\\+\\*\\?\\(\\)\\{\\}\\^\\$\\^\\&\\-\\~", // meta
+        "\\x41\\x0a", // hex literal
 
         // parse repetition
         "(a|b)?c*d+",
@@ -334,7 +376,24 @@ test "parse to string round trip" {
     };
 
     for (patterns) |pattern| {
-        try expectParseOk(gpa, pattern);
+        try expectParseOk(gpa, pattern, pattern);
+    }
+}
+
+test "parse to []byte round trip" {
+    const gpa = testing.allocator;
+
+    const cases = &[_]struct {
+        pattern: []const u8,
+        expected: []const u8,
+    }{
+        .{
+            .pattern = "\\a\\f\\t\\n\\r\\v",
+            .expected = &[_]u8{ '\x07', '\x0C', '\t', '\n', '\r', '\x0B' },
+        },
+    };
+    for (cases) |tc| {
+        try expectParseOk(gpa, tc.pattern, tc.expected);
     }
 }
 
@@ -365,9 +424,34 @@ test "parse errors" {
             .pattern = "a{5.0}",
             .expected = error.InvalidRepeatCountFormat,
         },
+        .{
+            .pattern = "\\z0B",
+            .expected = error.InvalidEscape,
+        },
+        .{
+            .pattern = "\\x1",
+            .expected = error.InvalidEscape,
+        },
+        .{
+            .pattern = "\\xZZ",
+            .expected = error.InvalidEscape,
+        },
     };
 
     for (test_cases) |tc| {
         try expectParseError(gpa, tc.pattern, tc.expected);
     }
 }
+
+const std = @import("std");
+const mem = std.mem;
+const Allocator = mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
+const ArrayList = std.ArrayList;
+
+const Ast = @import("Ast.zig");
+const Node = Ast.Node;
+const NodeList = ArrayList(Node.Index);
+
+const assert = std.debug.assert;
+const panic = std.debug.panic;

@@ -65,7 +65,7 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) !Frag {
     const node = ast.nodes[node_index];
     switch (node) {
         .literal => |lit| {
-            const id = try c.emitState(.{ .char = .{ .byte = lit.char, .out = 0 } });
+            const id = try c.emitState(.{ .char = .{ .byte = lit.char(), .out = 0 } });
             return .{ .id = id, .outs = .fromOne(id) };
         },
         .dot => {
