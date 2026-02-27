@@ -131,7 +131,7 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) !Frag {
             return frag;
         },
         .repetition => |rep| {
-            const Kind = Ast.Node.Repetition.Kind;
+            const Kind = Ast.Repetition.Kind;
             rep_kind: switch (rep.kind) {
                 .zero_or_one => {
                     // alt: left -> node, right -> next

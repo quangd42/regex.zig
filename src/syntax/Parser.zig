@@ -2,6 +2,9 @@
 pub const Error = error{
     InvalidEscape,
     EscapeAtEof,
+    UnexpectedClassClose,
+    ClassNotClosed,
+    InvalidClassRange,
     UnexpectedGroupClose,
     GroupNotClosed,
     RepeatCountNotClosed,
@@ -25,6 +28,8 @@ group_stack: ArrayList(union(enum) {
     alt: *NodeList, // The in-progress alternation, which will include current concat
 }) = .empty,
 
+// --- public methods ---
+
 pub fn init(gpa: Allocator, pattern: []const u8) Parser {
     return .{
         .pattern = pattern,
@@ -37,37 +42,13 @@ pub fn deinit(p: *Parser) void {
     p.arena.deinit();
 }
 
-// String iteration helpers.
-
-fn atEnd(p: *Parser) bool {
-    return p.offset >= p.pattern.len;
-}
-
-fn char(p: *Parser) u8 {
-    return p.pattern[p.offset];
-}
-
-fn eat(p: *Parser) void {
-    p.offset += 1;
-}
-
-fn eatIf(p: *Parser, target: u8) bool {
-    if (!p.atEnd() and p.char() == target) {
-        p.eat();
-        return true;
-    }
-    return false;
-}
-
-// --- parser funcs ---
-
 /// Parser entry method. Returns an Ast whose root node is the last element.
 pub fn parse(p: *Parser) !Ast {
     var concat = try p.createNodeList();
     const a = p.arena.allocator();
 
-    while (!p.atEnd()) {
-        switch (p.char()) {
+    while (p.eat()) |c| {
+        switch (c) {
             '(' => concat = try p.pushGroup(concat),
             ')' => concat = try p.popGroup(concat),
             '|' => concat = try p.pushAlt(concat),
@@ -75,12 +56,25 @@ pub fn parse(p: *Parser) !Ast {
             '+' => try p.parseRepetition(concat, .plus),
             '?' => try p.parseRepetition(concat, .question),
             '{' => try p.parseRepetition(concat, .range),
-            else => try concat.append(a, try p.parseAtom()),
+            '[' => try concat.append(a, try p.addNode(try p.parseClass())),
+            ']' => return error.UnexpectedClassClose,
+            '\\' => try concat.append(a, try p.addNode(try p.parseEscape())),
+            '.' => try concat.append(a, try p.addNode(.dot)),
+            else => try concat.append(a, try p.addNode(
+                .{ .literal = .{ .verbatim = c } },
+            )),
         }
     }
     try p.popGroupAtEnd(concat);
 
     return .{ .nodes = try p.nodes.toOwnedSlice(a) };
+}
+
+// --- parser state manipulations ---
+
+fn addNode(p: *Parser, node: Node) !Node.Index {
+    try p.nodes.append(p.arena.allocator(), node);
+    return @intCast(p.nodes.items.len - 1);
 }
 
 fn createNodeList(p: *Parser) !*NodeList {
@@ -90,14 +84,8 @@ fn createNodeList(p: *Parser) !*NodeList {
     return new_concat;
 }
 
-fn addNode(p: *Parser, node: Node) !Node.Index {
-    try p.nodes.append(p.arena.allocator(), node);
-    return @intCast(p.nodes.items.len - 1);
-}
-
 fn pushAlt(p: *Parser, cur_concat: *NodeList) !*NodeList {
-    assert(p.char() == '|');
-    p.eat();
+    assert(p.prev() == '|');
     const a = p.arena.allocator();
     if (p.group_stack.items.len > 0) {
         const stack_top = p.group_stack.items[p.group_stack.items.len - 1];
@@ -122,8 +110,7 @@ fn pushAlt(p: *Parser, cur_concat: *NodeList) !*NodeList {
 }
 
 fn pushGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
-    assert(p.char() == '(');
-    p.eat();
+    assert(p.prev() == '(');
     const a = p.arena.allocator();
     // shelf cur_concat and create new concat to parse group
     try p.group_stack.append(a, .{ .concat = cur_concat });
@@ -131,8 +118,7 @@ fn pushGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
 }
 
 fn popGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
-    assert(p.char() == ')');
-    p.eat();
+    assert(p.prev() == ')');
     const a = p.arena.allocator();
     const prev_group_state = p.group_stack.pop() orelse return error.UnexpectedGroupClose;
     switch (prev_group_state) {
@@ -188,94 +174,19 @@ fn popGroupAtEnd(p: *Parser, cur_concat: *NodeList) !void {
     }
 }
 
-fn parseEscape(p: *Parser) !Node.Index {
-    assert(p.char() == '\\');
-    p.eat();
-
-    if (p.atEnd()) return error.EscapeAtEof;
-    const c = p.char();
-
-    // This could just be helper functions for `p`.
-    // But there are a few other types of literal to come, so we can reassess then.
-    const LiteralBuilder = struct {
-        p: *Parser,
-
-        fn addEscaped(l: *@This(), byte: u8) !Node.Index {
-            l.p.eat();
-            return l.p.addNode(.{ .literal = .{ .escaped = byte } });
-        }
-
-        fn addC(l: *@This(), kind: Node.Literal.CStyle) !Node.Index {
-            l.p.eat();
-            return l.p.addNode(.{ .literal = .{ .c_style = kind } });
-        }
-    };
-    var lb: LiteralBuilder = .{ .p = p };
-
-    return switch (c) {
-        'd', 'D', 'w', 'W', 's', 'S' => p.parsePerlClass(),
-        'a' => lb.addC(.bell),
-        'f' => lb.addC(.form_feed),
-        'n' => lb.addC(.line_feed),
-        'r' => lb.addC(.carriage_return),
-        't' => lb.addC(.tab),
-        'v' => lb.addC(.vertical_tab),
-        'x' => p.parseHex(),
-        // zig fmt: off
-        '\\', '.', '+', '*', '?', '(', ')', ',', '[', ']',
-        '{', '}', '^', '$', '#', '&', '-', '~' => lb.addEscaped(c),
-        // zig fmt: on
-        else => error.InvalidEscape,
-    };
-}
-
-fn parseHex(p: *Parser) !Node.Index {
-    assert(p.char() == 'x');
-    p.eat();
-    if (p.offset + 2 > p.pattern.len) return error.InvalidEscape;
-    var byte: u8 = 0;
-    for (p.pattern[p.offset..][0..2]) |c| {
-        const d = switch (c) {
-            '0'...'9' => c - '0',
-            'a'...'f' => c - 'a' + 10,
-            'A'...'F' => c - 'A' + 10,
-            else => return error.InvalidEscape,
-        };
-        byte = (byte << 4) | d;
-    }
-    p.offset += 2;
-    return p.addNode(.{ .literal = .{ .hex = byte } });
-}
-
-fn parsePerlClass(p: *Parser) !Node.Index {
-    const c = p.char();
-    p.eat();
-    return p.addNode(.{
-        .class_perl = switch (c) {
-            'd' => .{ .kind = .digit, .negated = false },
-            'D' => .{ .kind = .digit, .negated = true },
-            'w' => .{ .kind = .word, .negated = false },
-            'W' => .{ .kind = .word, .negated = true },
-            's' => .{ .kind = .space, .negated = false },
-            'S' => .{ .kind = .space, .negated = true },
-            else => panic("expected Perl class character, got {c}\n", .{c}),
-        },
-    });
-}
+// --- parser funcs ---
 
 fn parseRepetition(
     p: *Parser,
     concat: *NodeList,
     kind: enum { star, plus, question, range },
 ) !void {
-    const c = p.char();
-    assert(c == '*' or c == '+' or c == '?' or c == '{');
-    p.eat();
+    assert(p.prev() == '*' or p.prev() == '+' or p.prev() == '?' or p.prev() == '{');
 
     if (concat.items.len == 0) return error.MissingRepeatArgument;
     const last_concat_node = concat.items[concat.items.len - 1];
 
-    const rep_kind: Node.Repetition.Kind =
+    const rep_kind: Ast.Repetition.Kind =
         switch (kind) {
             .question => .zero_or_one,
             .star => .zero_or_more,
@@ -301,7 +212,7 @@ fn parseRepetition(
     concat.items[concat.items.len - 1] = repeat_node;
 }
 
-fn parseDecimal(p: *Parser) !u32 {
+fn parseDecimal(p: *Parser) !u16 {
     var pos = p.offset;
     while (pos < p.pattern.len) : (pos += 1) {
         const ch = p.pattern[pos];
@@ -312,7 +223,7 @@ fn parseDecimal(p: *Parser) !u32 {
     // NOTE: Limit the value of parsed decimal to 1000 to avoid pathological NFA growth.
     // This limit is used by RE2 familly (Go, Rust) so we're following suit.
     const max = 1000;
-    var out: u32 = 0;
+    var out: u16 = 0;
     for (p.pattern[p.offset..pos]) |c| {
         out = out * 10 + c - '0';
         if (out > max) return error.InvalidRepeatSize;
@@ -321,18 +232,150 @@ fn parseDecimal(p: *Parser) !u32 {
     return out;
 }
 
-fn parseAtom(p: *Parser) Error!Node.Index {
-    switch (p.char()) {
-        '\\' => return p.parseEscape(),
-        '.' => {
-            p.eat();
-            return p.addNode(.dot);
-        },
-        else => |c| {
-            p.eat();
-            return p.addNode(.{ .literal = .{ .verbatim = c } });
-        },
+fn parseClassItem(p: *Parser, c: u8) !Class.Item {
+    return switch (c) {
+        '\\' => try p.parseEscapeInClass(),
+        else => .{ .literal = .{ .verbatim = c } },
+    };
+}
+
+fn unwrapItemToLiteral(item: Class.Item) !Ast.Literal {
+    return switch (item) {
+        .literal => |lit| lit,
+        else => error.InvalidClassRange,
+    };
+}
+
+fn parseClass(p: *Parser) !Node {
+    assert(p.prev() == '[');
+    const a = p.arena.allocator();
+    var cls: ArrayList(Class.Item) = .empty;
+    const negated = p.eatIf('^');
+
+    while (p.eat()) |c| {
+        if (c == ']' and cls.items.len > 0) break;
+        if (c == '-') {
+            if (cls.items.len == 0 or p.peek() == null or p.peek().? == ']') {
+                try cls.append(a, .{ .literal = .{ .verbatim = '-' } });
+                continue;
+            }
+            const top = cls.pop().?;
+            const from_lit = try unwrapItemToLiteral(top);
+            const to_char = p.eat() orelse return error.ClassNotClosed;
+            const to_item = try p.parseClassItem(to_char);
+            const to_lit = try unwrapItemToLiteral(to_item);
+            if (from_lit.char() > to_lit.char()) return error.InvalidClassRange;
+            try cls.append(a, .{ .range = .{ .from = from_lit, .to = to_lit } });
+            continue;
+        }
+        try cls.append(a, try p.parseClassItem(c));
+    } else return error.ClassNotClosed;
+
+    return .{ .class = .{
+        .items = try cls.toOwnedSlice(a),
+        .negated = negated,
+    } };
+}
+
+fn parseEscape(p: *Parser) !Node {
+    assert(p.prev() == '\\');
+    const c = p.eat() orelse return error.EscapeAtEof;
+    if (parseClassPerl(c)) |prl| return .{ .class_perl = prl };
+    if (try p.parseEscapeLiteral(c)) |lit| return .{ .literal = lit };
+    return error.InvalidEscape;
+}
+
+fn parseEscapeInClass(p: *Parser) !Class.Item {
+    assert(p.prev() == '\\');
+    const c = p.eat() orelse return error.EscapeAtEof;
+    if (parseClassPerl(c)) |prl| return .{ .perl = prl };
+    if (try p.parseEscapeLiteral(c)) |lit| return .{ .literal = lit };
+    return error.InvalidEscape;
+}
+
+fn parseCStyleEscape(c: u8) Ast.Literal.CStyle {
+    return switch (c) {
+        'a' => .bell,
+        'f' => .form_feed,
+        'n' => .line_feed,
+        'r' => .carriage_return,
+        't' => .tab,
+        'v' => .vertical_tab,
+        else => unreachable,
+    };
+}
+
+fn parseHex(p: *Parser) !Ast.Literal {
+    assert(p.prev() == 'x');
+    if (p.offset + 2 > p.pattern.len) return error.InvalidEscape;
+    var byte: u8 = 0;
+    for (p.pattern[p.offset..][0..2]) |c| {
+        const d = switch (c) {
+            '0'...'9' => c - '0',
+            'a'...'f' => c - 'a' + 10,
+            'A'...'F' => c - 'A' + 10,
+            else => return error.InvalidEscape,
+        };
+        byte = (byte << 4) | d;
     }
+    p.offset += 2;
+    return .{ .hex = byte };
+}
+
+fn parseEscapeLiteral(p: *Parser, c: u8) !?Ast.Literal {
+    return switch (c) {
+        'a', 'f', 'n', 'r', 't', 'v' => .{ .c_style = parseCStyleEscape(c) },
+        'x' => try p.parseHex(),
+        // zig fmt: off
+        '\\', '.', '+', '*', '?', '(', ')', ',', '[', ']', '{', '}',
+        '^', '$', '#', '&', '-', '~' => .{ .escaped = c } ,
+        // zig fmt: on
+        else => null,
+    };
+}
+
+fn parseClassPerl(c: u8) ?Class.Perl {
+    return switch (c) {
+        'd' => .{ .kind = .digit, .negated = false },
+        'D' => .{ .kind = .digit, .negated = true },
+        'w' => .{ .kind = .word, .negated = false },
+        'W' => .{ .kind = .word, .negated = true },
+        's' => .{ .kind = .space, .negated = false },
+        'S' => .{ .kind = .space, .negated = true },
+        else => null,
+    };
+}
+
+// --- string iteration helpers ---
+
+fn atEnd(p: *Parser) bool {
+    return p.offset >= p.pattern.len;
+}
+
+fn peek(p: *Parser) ?u8 {
+    if (p.atEnd()) return null;
+    return p.pattern[p.offset];
+}
+
+fn eat(p: *Parser) ?u8 {
+    if (p.atEnd()) return null;
+    const c = p.pattern[p.offset];
+    p.offset += 1;
+    return c;
+}
+
+fn eatIf(p: *Parser, target: u8) bool {
+    const c = p.peek() orelse return false;
+    if (c == target) {
+        p.offset += 1;
+        return true;
+    }
+    return false;
+}
+
+/// Only used for assertions.
+fn prev(p: *Parser) u8 {
+    return p.pattern[p.offset - 1];
 }
 
 const testing = std.testing;
@@ -363,9 +406,17 @@ test "parse to string round trip" {
         "|a",
 
         // parse atom & concat
-        "ab.\\d\\D\\w\\W\\s\\S", // perl
+        "ab.\\d\\D\\w\\W\\s\\S", // perl class
+        "[abc][a-z][^a-z][a\\-z][\\d\\D\\w\\W\\s\\S]",
+        "a[\\]]b",
+        "a[^\\]b]c",
         "\\\\\\.\\[\\]\\.\\+\\*\\?\\(\\)\\{\\}\\^\\$\\^\\&\\-\\~", // meta
         "\\x41\\x0a", // hex literal
+
+        // character class
+        "a[]]b_&&_a[\\]]b",
+        "a[-]b_&&_a[c-]_&&_[-c]_&&_a[\\-]b_&&_a[^-]",
+        "a[^]b]c_&_a[^\\]b]c",
 
         // parse repetition
         "(a|b)?c*d+",
@@ -436,6 +487,22 @@ test "parse errors" {
             .pattern = "\\xZZ",
             .expected = error.InvalidEscape,
         },
+        .{
+            .pattern = "[",
+            .expected = error.ClassNotClosed,
+        },
+        .{
+            .pattern = "]",
+            .expected = error.UnexpectedClassClose,
+        },
+        .{
+            .pattern = "[z-a]",
+            .expected = error.InvalidClassRange,
+        },
+        .{
+            .pattern = "[a-\\d]",
+            .expected = error.InvalidClassRange,
+        },
     };
 
     for (test_cases) |tc| {
@@ -451,6 +518,7 @@ const ArrayList = std.ArrayList;
 
 const Ast = @import("Ast.zig");
 const Node = Ast.Node;
+const Class = Ast.Class;
 const NodeList = ArrayList(Node.Index);
 
 const assert = std.debug.assert;
