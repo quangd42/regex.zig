@@ -34,7 +34,7 @@ pub fn init(gpa: Allocator, pattern: []const u8) Parser {
     return .{
         .pattern = pattern,
         .offset = 0,
-        .arena = ArenaAllocator.init(gpa),
+        .arena = .init(gpa),
     };
 }
 

@@ -81,21 +81,55 @@ test "basic empty matches" {
     const testing = std.testing;
     const gpa = testing.allocator;
 
-    var re4 = try compile(gpa, "|a");
-    defer re4.deinit();
-    const f4 = re4.find("abc");
-    try testing.expect(f4 != null);
-    try testing.expectEqual(Match{ .start = 0, .end = 0 }, f4.?);
+    {
+        var re = try compile(gpa, "|a");
+        defer re.deinit();
+        const f = re.find("abc");
+        try testing.expect(f != null);
+        try testing.expectEqual(Match{ .start = 0, .end = 0 }, f.?);
+    }
+    {
+        var re = try compile(gpa, "a|");
+        defer re.deinit();
+        const f = re.find("abc");
+        try testing.expect(f != null);
+        try testing.expectEqual(Match{ .start = 0, .end = 1 }, f.?);
+    }
+    {
+        var re = try compile(gpa, "b|");
+        defer re.deinit();
+        const f = re.find("abc");
+        try testing.expect(f != null);
+        try testing.expectEqual(Match{ .start = 0, .end = 0 }, f.?);
+    }
+}
 
-    var re5 = try compile(gpa, "a|");
-    defer re5.deinit();
-    const f5 = re5.find("abc");
-    try testing.expect(f5 != null);
-    try testing.expectEqual(Match{ .start = 0, .end = 1 }, f5.?);
+test "character class with perl items" {
+    const testing = std.testing;
+    const gpa = testing.allocator;
 
-    var re3 = try compile(gpa, "b|");
-    defer re3.deinit();
-    const f3 = re3.find("abc");
-    try testing.expect(f3 != null);
-    try testing.expectEqual(Match{ .start = 0, .end = 0 }, f3.?);
+    {
+        var re = try compile(gpa, "[\\D]");
+        defer re.deinit();
+        try testing.expect(re.match("a"));
+        try testing.expect(!re.match("5"));
+    }
+    {
+        var re = try compile(gpa, "[^\\D]");
+        defer re.deinit();
+        try testing.expect(re.match("5"));
+        try testing.expect(!re.match("a"));
+    }
+    {
+        var re = try compile(gpa, "[\\d\\D]");
+        defer re.deinit();
+        try testing.expect(re.match("5"));
+        try testing.expect(re.match("a"));
+    }
+    {
+        var re = try compile(gpa, "[^\\d\\D]");
+        defer re.deinit();
+        try testing.expect(!re.match("5"));
+        try testing.expect(!re.match("a"));
+    }
 }

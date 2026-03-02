@@ -12,12 +12,12 @@ const Program = @import("Program.zig");
 const State = Program.State;
 const StateId = Program.StateId;
 const ByteRange = Program.ByteRange;
-const Length = Program.Length;
 
 const Compiler = @This();
 
 states: ArrayList(State) = .empty,
 ranges: ArrayList(ByteRange) = .empty,
+scratch_ranges: ArrayList(ByteRange) = .empty,
 branches: ArrayList(StateId) = .empty,
 arena: std.heap.ArenaAllocator,
 
@@ -38,9 +38,6 @@ pub fn compile(gpa: Allocator, pattern: []const u8) !Program {
 
 fn compileAst(c: *Compiler, ast: Ast) !Program {
     const a = c.arena.allocator();
-
-    // load commonly used ranges into ByteRange array
-    try c.prepareCommonRanges();
 
     _ = try c.emitState(.{ .capture = .{ .slot = 0, .out = 1 } }); // capture_0
     // the root node is the last node in Ast.nodes
@@ -73,16 +70,19 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) !Frag {
             return .{ .id = id, .outs = .fromOne(id) };
         },
         .class_perl => |cl| {
-            // TODO: normalize ranges into (range_start, range_len)
-            // if singleton => emitChar
-            // else => emitMulti
-            const id = switch (cl.kind) {
-                .digit => try c.emitCommonRanges(.digit, 1, cl.negated),
-                .word => try c.emitCommonRanges(.lower_alpha, 4, cl.negated),
-                .space => try c.emitCommonRanges(.literal_space, 2, cl.negated),
-            };
+            const ranges = perlRanges(cl);
+            const start = c.ranges.items.len;
+            try c.ranges.ensureUnusedCapacity(a, ranges.len);
+            c.ranges.appendSliceAssumeCapacity(ranges);
+            const id = try c.emitState(.{ .ranges = .{
+                .start = @intCast(start),
+                .len = @intCast(ranges.len),
+                .negated = cl.negated,
+                .out = 0,
+            } });
             return .{ .id = id, .outs = .fromOne(id) };
         },
+        .class => |cl| return c.compileClass(cl),
         .group => |gr| {
             const slot_2k = c.group_count * 2;
             c.group_count += 1;
@@ -262,19 +262,161 @@ fn repetitionAlt(c: *Compiler, alt: StateId, arg: StateId, lazy: bool) PatchList
     }
 }
 
-fn emitCommonRanges(c: *Compiler, range_start: CommonByteRange, len: Length, negated: bool) !StateId {
-    return c.emitState(.{ .ranges = .{
-        .start = @intFromEnum(range_start),
-        .len = len,
-        .out = 0,
-        .negated = negated,
-    } });
-}
-
 /// Creates a Frag that only contains a single State.empty.
 fn compileEmpty(c: *Compiler) !Frag {
     const id = try c.emitState(.{ .empty = .{ .out = 0 } });
     return .{ .id = id, .outs = .fromOne(id) };
+}
+
+fn compileClass(c: *Compiler, cls: Ast.Class) !Frag {
+    const a = c.arena.allocator();
+    const start = c.ranges.items.len;
+
+    // Calculate upper bound of this class and reserve memory for worst case.
+    var reserve: usize = 0;
+    for (cls.items) |item| {
+        reserve += itemRangeUpperBound(item);
+    }
+    // Negation of normalized ranges can add at most one extra range.
+    if (cls.negated) reserve += reserve + 1;
+    try c.ranges.ensureTotalCapacity(a, c.ranges.items.len + reserve);
+
+    for (cls.items) |item| {
+        switch (item) {
+            .literal => |lit| c.ranges.appendAssumeCapacity(.{
+                .from = lit.char(),
+                .to = lit.char(),
+            }),
+            .range => |range| c.ranges.appendAssumeCapacity(.{
+                .from = range.from.char(),
+                .to = range.to.char(),
+            }),
+            .perl => |perl| {
+                const ranges = perlRanges(perl);
+                if (!perl.negated) {
+                    c.ranges.appendSliceAssumeCapacity(ranges);
+                } else {
+                    const negated_ranges = try c.negateRanges(ranges);
+                    c.ranges.appendSliceAssumeCapacity(negated_ranges);
+                }
+            },
+        }
+    }
+
+    var len = normalizeRanges(c.ranges.items[start..]);
+    c.ranges.shrinkRetainingCapacity(start + len);
+    if (cls.negated) {
+        const negated = try c.negateRanges(c.ranges.items[start..]);
+        // c.ranges capacity was reserved above for worst-case above (+1 range),
+        // so this is safe if negated.len > len. If negated.len < len, this does
+        // the job of shrinkRetainingCapacity().
+        c.ranges.items.len = start + negated.len;
+        @memcpy(c.ranges.items[start..], negated);
+        len = negated.len;
+    }
+
+    // This might happen when class items cancel each other, e.g. [^\d\D]
+    if (len == 0) {
+        const id = try c.emitState(.fail);
+        return .{ .id = id, .outs = .empty };
+    }
+
+    const ranges = c.ranges.items[start..][0..len];
+    // When the class amounts to a single char, we'll just emit a State.char.
+    if (ranges.len == 1 and ranges[0].from == ranges[0].to) {
+        c.ranges.shrinkRetainingCapacity(start);
+        const id = try c.emitState(.{ .char = .{ .byte = ranges[0].from, .out = 0 } });
+        return .{ .id = id, .outs = .fromOne(id) };
+    }
+
+    const id = try c.emitState(.{ .ranges = .{
+        .start = @intCast(start),
+        .len = @intCast(len),
+        .negated = false,
+        .out = 0,
+    } });
+    return .{ .id = id, .outs = .fromOne(id) };
+}
+
+fn itemRangeUpperBound(item: Ast.Class.Item) usize {
+    return switch (item) {
+        .literal, .range => 1,
+        .perl => |perl| {
+            const ranges = perlRanges(perl);
+            return if (perl.negated) ranges.len + 1 else ranges.len;
+        },
+    };
+}
+
+fn perlRanges(perl: Ast.Class.Perl) []const ByteRange {
+    return switch (perl.kind) {
+        .digit => &[_]ByteRange{
+            .{ .from = '0', .to = '9' },
+        },
+        .word => &[_]ByteRange{
+            .{ .from = '0', .to = '9' },
+            .{ .from = 'A', .to = 'Z' },
+            .{ .from = '_', .to = '_' },
+            .{ .from = 'a', .to = 'z' },
+        },
+        .space => &[_]ByteRange{
+            .{ .from = '\t', .to = '\r' },
+            .{ .from = ' ', .to = ' ' },
+        },
+    };
+}
+
+/// Sorts and merges `ranges` in place into normalized byte ranges
+/// (ascending, non-overlapping, non-adjacent).
+/// Returns the logical output length stored at the front of `ranges`.
+/// Caller is expected to truncate any stale trailing entries.
+fn normalizeRanges(ranges: []ByteRange) usize {
+    if (ranges.len == 0) return 0;
+    std.mem.sortUnstable(ByteRange, ranges, {}, lessRange);
+
+    var i: usize = 1;
+    for (ranges[1..]) |current| {
+        var previous = &ranges[i - 1];
+        if (current.from <= previous.to +| 1) {
+            previous.to = @max(previous.to, current.to);
+        } else {
+            ranges[i] = current;
+            i += 1;
+        }
+    }
+    return i;
+}
+
+fn lessRange(_: void, lhs: ByteRange, rhs: ByteRange) bool {
+    if (lhs.from < rhs.from) return true;
+    if (lhs.from > rhs.from) return false;
+    return lhs.to > rhs.to;
+}
+
+/// Computes the negation of normalized `source` ranges into `c.scratch_ranges`
+/// and returns the immutable result slice.
+fn negateRanges(c: *Compiler, source: []const ByteRange) ![]const ByteRange {
+    const scratch = &c.scratch_ranges;
+    scratch.clearRetainingCapacity();
+    try scratch.ensureTotalCapacity(c.arena.allocator(), source.len + 1);
+
+    const byte_max = std.math.maxInt(u8);
+    var next_from: u8 = 0;
+    for (source) |range| {
+        if (next_from < range.from) {
+            scratch.appendAssumeCapacity(.{
+                .from = next_from,
+                .to = range.from - 1,
+            });
+        }
+        if (range.to == byte_max) break;
+        next_from = range.to + 1;
+    } else scratch.appendAssumeCapacity(.{
+        .from = next_from,
+        .to = byte_max,
+    });
+
+    return scratch.items;
 }
 
 /// A compiled fragment returned by compileNode.
@@ -378,34 +520,6 @@ const PatchList = struct {
     };
 };
 
-const CommonByteRange = enum(u4) {
-    lower_alpha,
-    upper_alpha,
-    digit,
-    under, // underscore '_'
-    literal_space,
-    other_whitespace, // \t...\r
-};
-
-/// ByteRange is inclusive.
-const commonRanges = std.EnumArray(CommonByteRange, ByteRange).init(.{
-    .lower_alpha = .{ .from = 'a', .to = 'z' },
-    .upper_alpha = .{ .from = 'A', .to = 'Z' },
-    .digit = .{ .from = '0', .to = '9' },
-    .under = .{ .from = '_', .to = '_' },
-    .literal_space = .{ .from = ' ', .to = ' ' },
-    .other_whitespace = .{ .from = '\t', .to = '\r' },
-});
-
-/// Initializes the compiler's range pool with commonly used ranges, which can be used
-/// to compile perl classes (to be updated).
-fn prepareCommonRanges(c: *Compiler) !void {
-    try c.ranges.ensureTotalCapacity(c.arena.allocator(), commonRanges.values.len);
-    for (commonRanges.values) |value| { // Range.Index = CommonByteRange value
-        c.ranges.appendAssumeCapacity(value);
-    }
-}
-
 const testing = std.testing;
 
 test "basic compile" {
@@ -435,8 +549,10 @@ test "basic compile" {
     try expect(states[7].char.byte == 'c');
     try expect(states[7].char.out == 8);
     try expect(states[9].ranges.out == 11);
-    try expect(states[9].ranges.start == 2);
     try expect(states[9].ranges.len == 1);
+    const digit_range = prog.ranges[states[9].ranges.start];
+    try expect(digit_range.from == '0');
+    try expect(digit_range.to == '9');
     try expect(states[10].empty.out == 11);
 
     try expect(states[13].alt2.left == 14);
@@ -448,9 +564,7 @@ test "basic compile" {
     try expect(states[17].char.byte == 'z');
     try expect(states[17].char.out == 18);
 
-    try expect(prog.ranges.len == 6);
-    try expect(prog.ranges[2].from == '0');
-    try expect(prog.ranges[2].to == '9');
+    try expect(prog.ranges.len >= states[9].ranges.start + states[9].ranges.len);
 }
 
 test "basic repetition" {
