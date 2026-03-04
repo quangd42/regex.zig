@@ -223,6 +223,18 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) !Frag {
                 },
             }
         },
+        .assertion => |asrt| {
+            const id = try c.emitState(.{ .assert = .{
+                .pred = switch (asrt) {
+                    .start_line_or_text => .start_text,
+                    .end_line_or_text => .end_text,
+                    .word_boundary => .word_boundary,
+                    .not_word_boundary => .not_word_boundary,
+                },
+                .out = 0,
+            } });
+            return .{ .id = id, .outs = .fromOne(id) };
+        },
     }
 }
 
@@ -235,7 +247,7 @@ fn emitState(c: *Compiler, state: State) !StateId {
     try c.states.append(c.arena.allocator(), state);
     switch (state) {
         .char, .ranges, .any, .fail, .match => c.matcher_count += 1,
-        .empty, .capture, .alt, .alt2 => {},
+        .empty, .capture, .assert, .alt, .alt2 => {},
     }
     return state_id;
 }
@@ -873,5 +885,28 @@ test "ascii class compile" {
         defer prog.deinit();
         const states = prog.states;
         try expect(std.meta.activeTag(states[1]) == .fail);
+    }
+}
+
+test "assertions" {
+    const a = testing.allocator;
+    const expect = testing.expect;
+
+    {
+        var prog = try Compiler.compile(a, "^re$");
+        defer prog.deinit();
+        const states = prog.states;
+        try expect(states.len == 7);
+        try expect(states[0].capture.out == 1);
+        try expect(states[1].assert.pred == .start_text);
+        try expect(states[1].assert.out == 2);
+        try expect(states[2].char.byte == 'r');
+        try expect(states[2].char.out == 3);
+        try expect(states[3].char.byte == 'e');
+        try expect(states[3].char.out == 4);
+        try expect(states[4].assert.pred == .end_text);
+        try expect(states[4].assert.out == 5);
+        try expect(states[5].capture.out == 6);
+        try expect(states[6] == .match);
     }
 }

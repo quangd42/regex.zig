@@ -5,9 +5,9 @@ const Regex = @This();
 const Compiler = @import("syntax/Compiler.zig");
 const PikeVM = @import("engine/PikeVm.zig");
 
-const Engine = @import("engine.zig");
-pub const Match = Engine.Match;
-pub const Captures = Engine.Captures;
+const types = @import("types.zig");
+pub const Match = types.Match;
+pub const Captures = types.Captures;
 
 engine: PikeVM,
 
@@ -60,21 +60,36 @@ test "testdata" {
 test "basic end-to-end" {
     const testing = std.testing;
     const gpa = testing.allocator;
-    var re = try compile(gpa, "a(b|c|)\\d");
-    defer re.deinit();
-    try testing.expect(re.match("ab0"));
-    try testing.expect(re.match("ac1"));
-    try testing.expect(re.match("a1"));
-    try testing.expect(!re.match("aadd"));
+    {
+        var re = try compile(gpa, "a(b|c|)\\d");
+        defer re.deinit();
+        try testing.expect(re.match("ab0"));
+        try testing.expect(re.match("ac1"));
+        try testing.expect(re.match("a1"));
+        try testing.expect(!re.match("aadd"));
 
-    try testing.expectEqual(Match{ .start = 2, .end = 5 }, re.find("xyac12").?);
-    try testing.expectEqual(Match{ .start = 2, .end = 4 }, re.find("mna1x").?);
-    try testing.expectEqual(null, re.find("aadd"));
-
-    var re2 = try compile(gpa, "a\\D");
-    defer re2.deinit();
-    try testing.expect(re2.match("aa"));
-    try testing.expect(!re2.match("a1"));
+        try testing.expectEqual(Match{ .start = 2, .end = 5 }, re.find("xyac12").?);
+        try testing.expectEqual(Match{ .start = 2, .end = 4 }, re.find("mna1x").?);
+        try testing.expectEqual(null, re.find("aadd"));
+    }
+    {
+        var re = try compile(gpa, "a\\D");
+        defer re.deinit();
+        try testing.expect(re.match("aa"));
+        try testing.expect(!re.match("a1"));
+    }
+    {
+        var re = try compile(gpa, "^r\\D$");
+        defer re.deinit();
+        try testing.expect(re.match("re"));
+        try testing.expect(!re.match("aarebb"));
+    }
+    {
+        var re = try compile(gpa, "word\\b");
+        defer re.deinit();
+        try testing.expect(re.match("sword"));
+        try testing.expect(!re.match("swordfish"));
+    }
 }
 
 test "basic empty matches" {

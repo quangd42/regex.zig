@@ -16,6 +16,7 @@ Working Regex with complete linear-time PikeVM as the engine.
 
 - Error reporting. https://matklad.github.io/2026/02/16/diagnostics-factory.html | https://news.ycombinator.com/item?id=47028705
 - Test harness to consume Rust's toml test files. https://github.com/karlseguin/zqlite.zig/blob/master/test_runner.zig
+- Documentation https://github.com/karlseguin/http.zig/blob/master/readme.md
 - More syntax support.
 - Better public APIs.
 - Engines: Backtracking, DFA, lazy DFA, one-pass DFA.

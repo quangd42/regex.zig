@@ -1,26 +1,24 @@
-const std = @import("std");
-const Allocator = std.mem.Allocator;
+const Program = @import("../syntax/Program.zig");
+pub const Offset = Program.Offset;
+pub const StateId = Program.StateId;
+pub const Predicate = Program.Predicate;
 
-pub const StateId = u32;
+pub const Input = struct {
+    haystack: []const u8,
+    anchored: bool = false,
 
-/// Position of a character into input `haystack`.
-pub const Offset = u32;
-
-/// Sentinel value for null offset. There is no check for null because in practice an input of anything
-/// close to this size might already cause other problems before it gets here.
-pub const null_offset = std.math.maxInt(Offset);
-
-/// Match contains the half-open [start, end) indice range of the match in input.
-pub const Match = struct {
-    start: usize,
-    end: usize,
-};
-
-pub const Captures = struct {
-    groups: []?Match,
-
-    pub fn deinit(self: *Captures, gpa: Allocator) void {
-        gpa.free(self.groups);
-        self.* = undefined;
+    pub fn init(haystack: []const u8) Input {
+        return .{ .haystack = haystack };
     }
+
+    pub fn initWithOptions(haystack: []const u8, options: Options) Input {
+        return .{
+            .haystack = haystack,
+            .anchored = options.anchored,
+        };
+    }
+
+    pub const Options = struct {
+        anchored: bool = false,
+    };
 };

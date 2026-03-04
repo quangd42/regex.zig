@@ -61,12 +61,13 @@ pub fn parse(p: *Parser) !Ast {
             ']' => return error.UnexpectedClassClose,
             '\\' => try concat.append(a, try p.addNode(try p.parseEscape())),
             '.' => try concat.append(a, try p.addNode(.dot)),
+            '^' => try concat.append(a, try p.addNode(.{ .assertion = .start_line_or_text })),
+            '$' => try concat.append(a, try p.addNode(.{ .assertion = .end_line_or_text })),
             else => try concat.append(a, try p.addNode(
                 .{ .literal = .{ .verbatim = c } },
             )),
         }
-    }
-    try p.popGroupAtEnd(concat);
+    } else try p.popGroupAtEnd(concat);
 
     return .{ .nodes = try p.nodes.toOwnedSlice(a) };
 }
@@ -296,7 +297,8 @@ fn parseClass(p: *Parser) !Node {
 fn parseEscape(p: *Parser) !Node {
     assert(p.prev() == '\\');
     const c = p.eat() orelse return error.EscapeAtEof;
-    if (parseClassPerl(c)) |prl| return .{ .class_perl = prl };
+    if (parseClassPerl(c)) |perl| return .{ .class_perl = perl };
+    if (parseAssertion(c)) |asrt| return .{ .assertion = asrt };
     if (try p.parseEscapeLiteral(c)) |lit| return .{ .literal = lit };
     return error.InvalidEscape;
 }
@@ -304,7 +306,7 @@ fn parseEscape(p: *Parser) !Node {
 fn parseEscapeInClass(p: *Parser) !Class.Item {
     assert(p.prev() == '\\');
     const c = p.eat() orelse return error.EscapeAtEof;
-    if (parseClassPerl(c)) |prl| return .{ .perl = prl };
+    if (parseClassPerl(c)) |perl| return .{ .perl = perl };
     if (try p.parseEscapeLiteral(c)) |lit| return .{ .literal = lit };
     return error.InvalidEscape;
 }
@@ -350,6 +352,14 @@ fn parseEscapeLiteral(p: *Parser, c: u8) !?Ast.Literal {
     };
 }
 
+fn parseAssertion(c: u8) ?Ast.Assertion {
+    return switch (c) {
+        'b' => .word_boundary,
+        'B' => .not_word_boundary,
+        else => null,
+    };
+}
+
 fn parseClassPerl(c: u8) ?Class.Perl {
     return switch (c) {
         'd' => .{ .kind = .digit, .negated = false },
@@ -389,7 +399,7 @@ fn eatIf(p: *Parser, target: u8) bool {
     return false;
 }
 
-/// Only used for assertions.
+/// Only used for internal invariants.
 fn prev(p: *Parser) u8 {
     return p.pattern[p.offset - 1];
 }
@@ -415,13 +425,13 @@ test "parse to string round trip" {
     const gpa = testing.allocator;
 
     const patterns = &[_][]const u8{
-        // parse group & alternation
+        // group & alternation
         "a(b|c|\\d)",
         "\\d|a|\\s",
         "a|", // empty alt
         "|a",
 
-        // parse atom & concat
+        // atom & concat
         "ab.\\d\\D\\w\\W\\s\\S", // perl class
         "[abc][a-z][^a-z][a\\-z][\\d\\D\\w\\W\\s\\S]",
         "a[\\]]b",
@@ -436,12 +446,15 @@ test "parse to string round trip" {
         "a[[:alpha:]]",
         "b[[:^alnum:]]",
 
-        // parse repetition
+        // repetition
         "(a|b)?c*d+",
         "(a|b)??c*?d+?",
         "(a|b|c){5}|(a|b|c){5}?",
         "(a|b|c){5,}|(a|b|c){5,}",
         "(a|b|c){5,10}|(a|b|c){5,10}",
+
+        // assertions
+        "^re$",
     };
 
     for (patterns) |pattern| {

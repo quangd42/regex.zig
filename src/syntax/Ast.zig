@@ -15,7 +15,7 @@ pub const Node = union(enum) {
     alternation: Alternation,
     concat: Concat,
     repetition: Repetition,
-    // assertion: Assertion,
+    assertion: Assertion,
 
     pub const Index = u32;
 };
@@ -147,6 +147,17 @@ pub const Repetition = struct {
     };
 };
 
+pub const Assertion = enum {
+    /// `^`
+    start_line_or_text,
+    /// `$`
+    end_line_or_text,
+    /// `\b`
+    word_boundary,
+    /// `\B`
+    not_word_boundary,
+};
+
 pub fn format(
     self: @This(),
     writer: *std.Io.Writer,
@@ -191,12 +202,14 @@ fn formatNode(self: @This(), writer: *std.Io.Writer, index: Node.Index) std.Io.W
             }
             if (r.lazy) try writer.printAsciiChar('?', .{});
         },
-        // .assertion => |a| {
-        //     switch (a.kind) {
-        //         .start_line_or_string => try writer.printAsciiChar('^', .{}),
-        //         .end_line_or_string => try writer.printAsciiChar('$', .{}),
-        //     }
-        // },
+        .assertion => |a| {
+            switch (a) {
+                .start_line_or_text => try writer.printAsciiChar('^', .{}),
+                .end_line_or_text => try writer.printAsciiChar('$', .{}),
+                .word_boundary => try writer.print("\\b", .{}),
+                .not_word_boundary => try writer.print("\\B", .{}),
+            }
+        },
     }
 }
 
