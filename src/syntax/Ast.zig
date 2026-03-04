@@ -65,15 +65,57 @@ pub const Class = struct {
         literal: Literal,
         range: Range,
         perl: Perl,
+        ascii: Ascii,
     };
 
     pub const Perl = struct {
         kind: Kind,
         negated: bool,
 
-        const Kind = enum { digit, word, space };
+        pub const Kind = enum { digit, word, space };
     };
+
     pub const Range = struct { from: Literal, to: Literal };
+
+    pub const Ascii = struct {
+        kind: Kind,
+        negated: bool,
+
+        pub const Kind = enum {
+            /// alphanumeric `[0-9A-Za-z]`
+            alnum,
+            /// alphabetic `[A-Za-z]`
+            alpha,
+            /// ASCII `[\x00-\x7F]`
+            ascii,
+            /// blank `[\t ]`
+            blank,
+            /// control `[\x00-\x1F\x7F]`
+            cntrl,
+            /// digits `[0-9]`
+            digit,
+            /// graphical `[!-~]`
+            graph,
+            /// lower case `[a-z]`
+            lower,
+            /// printable `[ -~]`
+            print,
+            /// punctuation `[!-/:-@\[-`{-~]`
+            punct,
+            /// whitespace `[\t\n\v\f\r ]`
+            space,
+            /// upper case `[A-Z]`
+            upper,
+            /// word characters `[0-9A-Za-z_]`
+            word,
+            /// hex digit `[0-9A-Fa-f]`
+            xdigit,
+
+            pub fn fromName(name: []const u8) ?Kind {
+                return std.meta.stringToEnum(Kind, name);
+            }
+        };
+    };
 };
 
 pub const Group = struct {
@@ -170,6 +212,10 @@ fn formatClass(writer: *std.Io.Writer, class: Class) std.Io.Writer.Error!void {
                 try formatLiteral(writer, range.to);
             },
             .perl => |perl| try formatClassPerl(writer, perl),
+            .ascii => |ascii| try writer.print(
+                "[:{s}{s}:]",
+                .{ if (ascii.negated) "^" else "", @tagName(ascii.kind) },
+            ),
         }
     }
     try writer.printAsciiChar(']', .{});

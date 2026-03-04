@@ -300,6 +300,15 @@ fn compileClass(c: *Compiler, cls: Ast.Class) !Frag {
                     c.ranges.appendSliceAssumeCapacity(negated_ranges);
                 }
             },
+            .ascii => |ascii| {
+                const ranges = asciiRanges(ascii);
+                if (!ascii.negated) {
+                    c.ranges.appendSliceAssumeCapacity(ranges);
+                } else {
+                    const negated_ranges = try c.negateRanges(ranges);
+                    c.ranges.appendSliceAssumeCapacity(negated_ranges);
+                }
+            },
         }
     }
 
@@ -345,24 +354,113 @@ fn itemRangeUpperBound(item: Ast.Class.Item) usize {
             const ranges = perlRanges(perl);
             return if (perl.negated) ranges.len + 1 else ranges.len;
         },
+        .ascii => |ascii| {
+            const ranges = asciiRanges(ascii);
+            return if (ascii.negated) ranges.len + 1 else ranges.len;
+        },
+    };
+}
+
+/// Helper to generate []const ByteRange from short hand tuples, such as in
+/// `perlRanges()` and `asciiRanges()`.
+fn byteRanges(comptime tuples: anytype) []const ByteRange {
+    const tuples_info = @typeInfo(@TypeOf(tuples));
+    comptime {
+        if (tuples_info != .@"struct" or !tuples_info.@"struct".is_tuple) {
+            @compileError("byteRanges expects a tuple of (from, to) byte tuples");
+        }
+    }
+
+    return comptime blk: {
+        var ranges: [tuples_info.@"struct".fields.len]ByteRange = undefined;
+        for (tuples, &ranges) |pair, *range| {
+            const pair_info = @typeInfo(@TypeOf(pair));
+            if (pair_info != .@"struct" or !pair_info.@"struct".is_tuple or pair_info.@"struct".fields.len != 2) {
+                @compileError("byteRanges entries must be 2-tuples");
+            }
+            range.* = .{ .from = @as(u8, pair[0]), .to = @as(u8, pair[1]) };
+        }
+        const final = ranges;
+        break :blk &final;
     };
 }
 
 fn perlRanges(perl: Ast.Class.Perl) []const ByteRange {
     return switch (perl.kind) {
-        .digit => &[_]ByteRange{
-            .{ .from = '0', .to = '9' },
-        },
-        .word => &[_]ByteRange{
-            .{ .from = '0', .to = '9' },
-            .{ .from = 'A', .to = 'Z' },
-            .{ .from = '_', .to = '_' },
-            .{ .from = 'a', .to = 'z' },
-        },
-        .space => &[_]ByteRange{
-            .{ .from = '\t', .to = '\r' },
-            .{ .from = ' ', .to = ' ' },
-        },
+        .digit => byteRanges(.{
+            .{ '0', '9' },
+        }),
+        .word => byteRanges(.{
+            .{ '0', '9' },
+            .{ 'A', 'Z' },
+            .{ '_', '_' },
+            .{ 'a', 'z' },
+        }),
+        .space => byteRanges(.{
+            .{ '\t', '\r' },
+            .{ ' ', ' ' },
+        }),
+    };
+}
+
+fn asciiRanges(ascii: Ast.Class.Ascii) []const ByteRange {
+    return switch (ascii.kind) {
+        .alnum => byteRanges(.{
+            .{ '0', '9' },
+            .{ 'A', 'Z' },
+            .{ 'a', 'z' },
+        }),
+        .alpha => byteRanges(.{
+            .{ 'A', 'Z' },
+            .{ 'a', 'z' },
+        }),
+        .ascii => byteRanges(.{
+            .{ 0x00, 0x7F },
+        }),
+        .blank => byteRanges(.{
+            .{ '\t', '\t' },
+            .{ ' ', ' ' },
+        }),
+        .cntrl => byteRanges(.{
+            .{ 0x00, 0x1F },
+            .{ 0x7F, 0x7F },
+        }),
+        .digit => byteRanges(.{
+            .{ '0', '9' },
+        }),
+        .graph => byteRanges(.{
+            .{ '!', '~' },
+        }),
+        .lower => byteRanges(.{
+            .{ 'a', 'z' },
+        }),
+        .print => byteRanges(.{
+            .{ ' ', '~' },
+        }),
+        .punct => byteRanges(.{
+            .{ '!', '/' },
+            .{ ':', '@' },
+            .{ '[', '`' },
+            .{ '{', '~' },
+        }),
+        .space => byteRanges(.{
+            .{ '\t', '\r' },
+            .{ ' ', ' ' },
+        }),
+        .upper => byteRanges(.{
+            .{ 'A', 'Z' },
+        }),
+        .word => byteRanges(.{
+            .{ '0', '9' },
+            .{ 'A', 'Z' },
+            .{ '_', '_' },
+            .{ 'a', 'z' },
+        }),
+        .xdigit => byteRanges(.{
+            .{ '0', '9' },
+            .{ 'A', 'F' },
+            .{ 'a', 'f' },
+        }),
     };
 }
 
@@ -741,5 +839,39 @@ test "counted repetition" {
         try expect(states[6].char.byte == 'a');
         try expect(states[6].char.out == 7);
         try expect(states[7].capture.out == 8);
+    }
+}
+
+test "ascii class compile" {
+    const a = testing.allocator;
+    const expect = testing.expect;
+
+    {
+        var prog = try Compiler.compile(a, "[^[:digit:]]");
+        defer prog.deinit();
+        const states = prog.states;
+        try expect(states[1].ranges.len == 2);
+        const ranges = prog.ranges[states[1].ranges.start..][0..states[1].ranges.len];
+        try expect(ranges[0].from == 0x00);
+        try expect(ranges[0].to == '/');
+        try expect(ranges[1].from == ':');
+        try expect(ranges[1].to == 0xFF);
+    }
+
+    {
+        var prog = try Compiler.compile(a, "[[:digit:][:^digit:]]");
+        defer prog.deinit();
+        const states = prog.states;
+        try expect(states[1].ranges.len == 1);
+        const ranges = prog.ranges[states[1].ranges.start..][0..states[1].ranges.len];
+        try expect(ranges[0].from == 0x00);
+        try expect(ranges[0].to == 0xFF);
+    }
+
+    {
+        var prog = try Compiler.compile(a, "[^[:digit:][:^digit:]]");
+        defer prog.deinit();
+        const states = prog.states;
+        try expect(std.meta.activeTag(states[1]) == .fail);
     }
 }

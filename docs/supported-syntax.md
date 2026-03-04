@@ -8,6 +8,7 @@ Legend:
 - planned = not implemented yet
 - done = fully implemented
 - not supported = explicitly unsupported in this engine
+- ??? = maybe?
 
 ## Core Syntax
 
@@ -37,11 +38,11 @@ Legend:
 
 | Feature                             | PikeVM (NFA) |
 | ----------------------------------- | ------------ |
-| [abc]                               | done         |
-| [a-z]                               | done         |
-| [^...]                              | done         |
+| `[abc]`                             | done         |
+| `[a-z]`                             | done         |
+| `[^...]`                            | done         |
 | Escapes inside [] (\], \-, \^, \\)  | done         |
-| POSIX classes ([[:alpha:]] etc.)    | planned      |
+| POSIX classes (`[[:alpha:]]` etc.)  | done         |
 | Perl classes (\d \D \w \W \s \S)    | done         |
 | Unicode properties (\p{..}, \P{..}) | planned      |
 | Unicode scripts/blocks              | planned      |
@@ -105,10 +106,10 @@ Legend:
 | Leftmost-first semantics         | done         |
 | Leftmost-longest semantics       | planned      |
 | Earliest match search            | done         |
-| Overlapping matches              | planned      |
-| Multiple patterns (pattern sets) | planned      |
+| Overlapping matches              | ???????      |
+| Multiple patterns (pattern sets) | ???????      |
 | Capture iteration                | planned      |
 | Find all matches                 | planned      |
 | Bounded search (start/end)       | planned      |
 | Replacements                     | planned      |
-| Streaming search                 | planned      |
+| Streaming search                 | ???????      |

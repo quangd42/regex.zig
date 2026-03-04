@@ -5,6 +5,7 @@ pub const Error = error{
     UnexpectedClassClose,
     ClassNotClosed,
     InvalidClassRange,
+    InvalidAsciiClass,
     UnexpectedGroupClose,
     GroupNotClosed,
     RepeatCountNotClosed,
@@ -250,30 +251,45 @@ fn parseClass(p: *Parser) !Node {
     assert(p.prev() == '[');
     const a = p.arena.allocator();
     var cls: ArrayList(Class.Item) = .empty;
-    const negated = p.eatIf('^');
+    const cls_negated = p.eatIf('^');
 
     while (p.eat()) |c| {
         if (c == ']' and cls.items.len > 0) break;
-        if (c == '-') {
-            if (cls.items.len == 0 or p.peek() == null or p.peek().? == ']') {
-                try cls.append(a, .{ .literal = .{ .verbatim = '-' } });
-                continue;
+        const item: Class.Item = item: {
+            if (c == '-') {
+                // Range item
+                if (cls.items.len == 0 or p.peek() == null or p.peek().? == ']') {
+                    break :item .{ .literal = .{ .verbatim = '-' } };
+                }
+                const top = cls.pop().?;
+                const from_lit = try unwrapItemToLiteral(top);
+                const to_char = p.eat() orelse return error.ClassNotClosed;
+                const to_item = try p.parseClassItem(to_char);
+                const to_lit = try unwrapItemToLiteral(to_item);
+                if (from_lit.char() > to_lit.char()) return error.InvalidClassRange;
+                break :item .{ .range = .{ .from = from_lit, .to = to_lit } };
+            } else if (c == '[' and p.eatIf(':')) {
+                // ASCII class (POSIX class) item
+                const negated = p.eatIf('^');
+                const start = p.offset;
+                const end = while (p.eat()) |cur| {
+                    if (cur == ':') break p.offset - 1;
+                } else return error.ClassNotClosed;
+                if (!p.eatIf(']')) return error.InvalidAsciiClass;
+                const name = p.pattern[start..end];
+                const kind = Class.Ascii.Kind.fromName(name) orelse return error.InvalidAsciiClass;
+                break :item .{ .ascii = .{ .kind = kind, .negated = negated } };
+            } else {
+                break :item try p.parseClassItem(c);
             }
-            const top = cls.pop().?;
-            const from_lit = try unwrapItemToLiteral(top);
-            const to_char = p.eat() orelse return error.ClassNotClosed;
-            const to_item = try p.parseClassItem(to_char);
-            const to_lit = try unwrapItemToLiteral(to_item);
-            if (from_lit.char() > to_lit.char()) return error.InvalidClassRange;
-            try cls.append(a, .{ .range = .{ .from = from_lit, .to = to_lit } });
-            continue;
-        }
-        try cls.append(a, try p.parseClassItem(c));
+        };
+
+        try cls.append(a, item);
     } else return error.ClassNotClosed;
 
     return .{ .class = .{
         .items = try cls.toOwnedSlice(a),
-        .negated = negated,
+        .negated = cls_negated,
     } };
 }
 
@@ -417,6 +433,8 @@ test "parse to string round trip" {
         "a[]]b_&&_a[\\]]b",
         "a[-]b_&&_a[c-]_&&_[-c]_&&_a[\\-]b_&&_a[^-]",
         "a[^]b]c_&_a[^\\]b]c",
+        "a[[:alpha:]]",
+        "b[[:^alnum:]]",
 
         // parse repetition
         "(a|b)?c*d+",
@@ -502,6 +520,10 @@ test "parse errors" {
         .{
             .pattern = "[a-\\d]",
             .expected = error.InvalidClassRange,
+        },
+        .{
+            .pattern = "[[:alpaca:]]",
+            .expected = error.InvalidAsciiClass,
         },
     };
 
