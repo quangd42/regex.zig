@@ -587,7 +587,7 @@ test "fowler basic subset" {
     const verbose = false;
 
     for (all_cases) |tc| {
-        var re = try Regex.compile(gpa, tc.pattern);
+        var re = try Regex.compile(gpa, tc.pattern, .{});
         defer re.deinit();
 
         if (verbose) re.engine.prog.dumpDebug();

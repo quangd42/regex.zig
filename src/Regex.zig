@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const Regex = @This();
 const Compiler = @import("syntax/Compiler.zig");
+pub const Options = @import("Options.zig");
 const PikeVM = @import("engine/PikeVm.zig");
 
 const types = @import("types.zig");
@@ -11,8 +12,8 @@ pub const Captures = types.Captures;
 
 engine: PikeVM,
 
-pub fn compile(gpa: Allocator, pattern: []const u8) !Regex {
-    const prog = try Compiler.compile(gpa, pattern);
+pub fn compile(gpa: Allocator, pattern: []const u8, options: Options) !Regex {
+    const prog = try Compiler.compile(gpa, pattern, options);
 
     // TODO: choose engine based on pattern
     return .{ .engine = try .init(gpa, prog) };
@@ -53,15 +54,16 @@ pub fn capturesLen(re: *Regex) usize {
     return re.engine.capturesLen();
 }
 
-test "testdata" {
-    _ = @import("tests/fowler_basic.zig");
-}
+const testing = std.testing;
+const errors = @import("errors.zig");
+const Diagnostics = errors.Diagnostics;
+const Span = errors.Span;
 
-test "basic end-to-end" {
-    const testing = std.testing;
+test "usage: basic compile, match, find" {
     const gpa = testing.allocator;
+
     {
-        var re = try compile(gpa, "a(b|c|)\\d");
+        var re = try Regex.compile(gpa, "a(b|c|)\\d", .{});
         defer re.deinit();
         try testing.expect(re.match("ab0"));
         try testing.expect(re.match("ac1"));
@@ -73,78 +75,56 @@ test "basic end-to-end" {
         try testing.expectEqual(null, re.find("aadd"));
     }
     {
-        var re = try compile(gpa, "a\\D");
-        defer re.deinit();
-        try testing.expect(re.match("aa"));
-        try testing.expect(!re.match("a1"));
-    }
-    {
-        var re = try compile(gpa, "^r\\D$");
-        defer re.deinit();
-        try testing.expect(re.match("re"));
-        try testing.expect(!re.match("aarebb"));
-    }
-    {
-        var re = try compile(gpa, "word\\b");
-        defer re.deinit();
-        try testing.expect(re.match("sword"));
-        try testing.expect(!re.match("swordfish"));
-    }
-}
-
-test "basic empty matches" {
-    const testing = std.testing;
-    const gpa = testing.allocator;
-
-    {
-        var re = try compile(gpa, "|a");
-        defer re.deinit();
-        const f = re.find("abc");
-        try testing.expect(f != null);
-        try testing.expectEqual(Match{ .start = 0, .end = 0 }, f.?);
-    }
-    {
-        var re = try compile(gpa, "a|");
-        defer re.deinit();
-        const f = re.find("abc");
-        try testing.expect(f != null);
-        try testing.expectEqual(Match{ .start = 0, .end = 1 }, f.?);
-    }
-    {
-        var re = try compile(gpa, "b|");
-        defer re.deinit();
-        const f = re.find("abc");
-        try testing.expect(f != null);
-        try testing.expectEqual(Match{ .start = 0, .end = 0 }, f.?);
-    }
-}
-
-test "character class with perl items" {
-    const testing = std.testing;
-    const gpa = testing.allocator;
-
-    {
-        var re = try compile(gpa, "[\\D]");
-        defer re.deinit();
-        try testing.expect(re.match("a"));
-        try testing.expect(!re.match("5"));
-    }
-    {
-        var re = try compile(gpa, "[^\\D]");
-        defer re.deinit();
-        try testing.expect(re.match("5"));
-        try testing.expect(!re.match("a"));
-    }
-    {
-        var re = try compile(gpa, "[\\d\\D]");
+        var re = try Regex.compile(gpa, "[\\d\\D]", .{});
         defer re.deinit();
         try testing.expect(re.match("5"));
         try testing.expect(re.match("a"));
     }
+}
+
+test "usage: error with diagnostics" {
+    const gpa = testing.allocator;
     {
-        var re = try compile(gpa, "[^\\d\\D]");
-        defer re.deinit();
-        try testing.expect(!re.match("5"));
-        try testing.expect(!re.match("a"));
+        const pattern = "[z-a]";
+        var diag: Diagnostics = undefined;
+        var re = Regex.compile(gpa, pattern, .{ .diagnostics = &diag }) catch {
+            switch (diag) {
+                .parse => |parse_diag| {
+                    try testing.expectEqual(Diagnostics.ParseError.invalid_class_range, parse_diag.err);
+                    try testing.expectEqual(Span{ .start = 3, .end = 4 }, parse_diag.span);
+                    try testing.expectEqual(Span{ .start = 1, .end = 2 }, parse_diag.aux_span.?);
+                },
+                .compile => return error.TestUnexpectedResult,
+            }
+            return;
+        };
+        re.deinit();
+        return error.TestUnexpectedResult;
     }
+    {
+        const pattern = "ab";
+        var diag: Diagnostics = undefined;
+        var re = Regex.compile(gpa, pattern, .{
+            .limits = .{ .states_count = 4 },
+            .diagnostics = &diag,
+        }) catch {
+            switch (diag) {
+                .compile => |compile_diag| switch (compile_diag) {
+                    .too_many_states => |state_limit| {
+                        try testing.expectEqual(@as(usize, 4), state_limit.limit);
+                        try testing.expectEqual(@as(usize, 5), state_limit.count);
+                    },
+                    else => return error.TestUnexpectedResult,
+                },
+                .parse => return error.TestUnexpectedResult,
+            }
+            return;
+        };
+        re.deinit();
+        return error.TestUnexpectedResult;
+    }
+}
+
+test {
+    _ = @import("tests/regex_api.zig");
 }

@@ -1,18 +1,6 @@
 //! The Compiler compiles parsed Ast into a Thompson-style NFA: a linked collection of State
 //! structures. This follows the algorithm presented in http://swtch.com/~rsc/regexp/
 
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
-const assert = std.debug.assert;
-
-const Ast = @import("Ast.zig");
-const Parser = @import("Parser.zig");
-const Program = @import("Program.zig");
-const State = Program.State;
-const StateId = Program.StateId;
-const ByteRange = Program.ByteRange;
-
 const Compiler = @This();
 
 states: ArrayList(State) = .empty,
@@ -20,6 +8,10 @@ ranges: ArrayList(ByteRange) = .empty,
 scratch_ranges: ArrayList(ByteRange) = .empty,
 branches: ArrayList(StateId) = .empty,
 arena: std.heap.ArenaAllocator,
+options: struct {
+    diagnostics: ?*Diagnostics,
+    state_limit: usize,
+},
 
 /// See `Program.group_count`.
 group_count: u16 = 1,
@@ -28,11 +20,22 @@ matcher_count: u32 = 0,
 
 /// Resources allocated are owned by Program after compilation is done, and caller is expected
 /// to call Program.deinit() to free them.
-pub fn compile(gpa: Allocator, pattern: []const u8) !Program {
-    var parser: Parser = .init(gpa, pattern);
-    defer parser.deinit();
-    const ast = try parser.parse();
-    var compiler: Compiler = .{ .arena = .init(gpa) };
+pub fn compile(gpa: Allocator, pattern: []const u8, options: Options) !Program {
+    const state_limit = try resolveStateLimit(options.limits.states_count, options.diagnostics);
+    var parser: Parser = .init(gpa, pattern, .{
+        .diagnostics = options.diagnostics,
+        .max_repeat = options.limits.repeat_size,
+    });
+    var ast = try parser.parse();
+    defer ast.deinit(gpa);
+    var compiler: Compiler = .{
+        .arena = .init(gpa),
+        .options = .{
+            .diagnostics = options.diagnostics,
+            .state_limit = state_limit,
+        },
+    };
+    errdefer compiler.arena.deinit();
     return compiler.compileAst(ast);
 }
 
@@ -40,8 +43,7 @@ fn compileAst(c: *Compiler, ast: Ast) !Program {
     const a = c.arena.allocator();
 
     _ = try c.emitState(.{ .capture = .{ .slot = 0, .out = 1 } }); // capture_0
-    // the root node is the last node in Ast.nodes
-    const frag = try c.compileNode(ast, @intCast(ast.nodes.len - 1));
+    const frag = try c.compileNode(ast, ast.root());
     const capture_1 = try c.emitState(.{
         .capture = .{ .slot = 1, .out = c.nextStateId() },
     });
@@ -242,7 +244,34 @@ fn nextStateId(c: *Compiler) StateId {
     return @intCast(c.states.items.len + 1);
 }
 
+fn err(c: *Compiler, compile_diag: Diagnostics.Compile) error{Compile} {
+    if (c.options.diagnostics) |diagnostics| {
+        diagnostics.* = .{ .compile = compile_diag };
+    }
+    return error.Compile;
+}
+
+fn resolveStateLimit(configured: ?usize, diagnostics: ?*Diagnostics) error{Compile}!usize {
+    const max = PatchList.Ptr.max;
+    const limit = configured orelse return max;
+    if (limit <= max) return limit;
+    if (diagnostics) |diag| {
+        diag.* = .{ .compile = .{ .invalid_state_limit = limit } };
+    }
+    return error.Compile;
+}
+
+fn checkStateLimit(c: *Compiler) error{Compile}!void {
+    const limit = c.options.state_limit;
+    if (c.states.items.len < limit) return;
+    return c.err(.{ .too_many_states = .{
+        .limit = limit,
+        .count = c.states.items.len + 1,
+    } });
+}
+
 fn emitState(c: *Compiler, state: State) !StateId {
+    try c.checkStateLimit();
     const state_id: StateId = @intCast(c.states.items.len);
     try c.states.append(c.arena.allocator(), state);
     switch (state) {
@@ -550,14 +579,14 @@ const PatchList = struct {
     const empty: PatchList = .{ .head = .zero, .tail = .zero };
 
     fn fromOne(id: StateId) PatchList {
-        assert(id < (1 << 31));
+        assert(id <= Ptr.max);
         const ptr: Ptr = .{ .id = @truncate(id), .field = .left };
         return .{ .head = ptr, .tail = ptr };
     }
 
     /// Like `fromOne`, but encode the patch target to .right.
     fn fromOneRight(id: StateId) PatchList {
-        assert(id < (1 << 31));
+        assert(id <= Ptr.max);
         const ptr: Ptr = .{ .id = @truncate(id), .field = .right };
         return .{ .head = ptr, .tail = ptr };
     }
@@ -586,6 +615,7 @@ const PatchList = struct {
         field: Field,
 
         const zero: Ptr = .{ .id = 0, .field = .left };
+        const max = std.math.maxInt(u31);
 
         /// Indicates which 'out' field to patched in State.
         /// The field bit is ignored unless the State is alt2.
@@ -637,7 +667,7 @@ test "basic compile" {
     const expect = testing.expect;
 
     const pattern = "a((b|c)|\\d|)(x|y)z";
-    var prog = try Compiler.compile(a, pattern);
+    var prog = try Compiler.compile(a, pattern, .{});
     defer prog.deinit();
 
     const states = prog.states;
@@ -682,7 +712,7 @@ test "basic repetition" {
     const expect = testing.expect;
 
     {
-        var prog = try Compiler.compile(a, "a?");
+        var prog = try Compiler.compile(a, "a?", .{});
         defer prog.deinit();
 
         const states = prog.states;
@@ -696,7 +726,7 @@ test "basic repetition" {
     }
 
     {
-        var prog = try Compiler.compile(a, "a*");
+        var prog = try Compiler.compile(a, "a*", .{});
         defer prog.deinit();
 
         const states = prog.states;
@@ -710,7 +740,7 @@ test "basic repetition" {
     }
 
     {
-        var prog = try Compiler.compile(a, "a+");
+        var prog = try Compiler.compile(a, "a+", .{});
         defer prog.deinit();
 
         const states = prog.states;
@@ -724,7 +754,7 @@ test "basic repetition" {
     }
 
     {
-        var prog = try Compiler.compile(a, "a??");
+        var prog = try Compiler.compile(a, "a??", .{});
         defer prog.deinit();
 
         const states = prog.states;
@@ -738,7 +768,7 @@ test "basic repetition" {
     }
 
     {
-        var prog = try Compiler.compile(a, "a*?");
+        var prog = try Compiler.compile(a, "a*?", .{});
         defer prog.deinit();
 
         const states = prog.states;
@@ -752,7 +782,7 @@ test "basic repetition" {
     }
 
     {
-        var prog = try Compiler.compile(a, "a+?");
+        var prog = try Compiler.compile(a, "a+?", .{});
         defer prog.deinit();
 
         const states = prog.states;
@@ -769,7 +799,7 @@ test "counted repetition" {
     const a = testing.allocator;
     const expect = testing.expect;
     {
-        var prog = try Compiler.compile(a, "a{3}");
+        var prog = try Compiler.compile(a, "a{3}", .{});
         defer prog.deinit();
         const states = prog.states;
         try expect(states.len == 6);
@@ -783,7 +813,7 @@ test "counted repetition" {
         try expect(states[4].capture.out == 5);
     }
     {
-        var prog = try Compiler.compile(a, "a{2,}");
+        var prog = try Compiler.compile(a, "a{2,}", .{});
         defer prog.deinit();
         const states = prog.states;
         try expect(states.len == 6);
@@ -797,7 +827,7 @@ test "counted repetition" {
         try expect(states[4].capture.out == 5);
     }
     {
-        var prog = try Compiler.compile(a, "a{2,}?");
+        var prog = try Compiler.compile(a, "a{2,}?", .{});
         defer prog.deinit();
         const states = prog.states;
         try expect(states.len == 6);
@@ -811,7 +841,7 @@ test "counted repetition" {
         try expect(states[4].capture.out == 5);
     }
     {
-        var prog = try Compiler.compile(a, "a{2,4}");
+        var prog = try Compiler.compile(a, "a{2,4}", .{});
         defer prog.deinit();
         const states = prog.states;
         try expect(states.len == 9);
@@ -832,7 +862,7 @@ test "counted repetition" {
     }
 
     {
-        var prog = try Compiler.compile(a, "a{2,4}?");
+        var prog = try Compiler.compile(a, "a{2,4}?", .{});
         defer prog.deinit();
 
         const states = prog.states;
@@ -859,7 +889,7 @@ test "ascii class compile" {
     const expect = testing.expect;
 
     {
-        var prog = try Compiler.compile(a, "[^[:digit:]]");
+        var prog = try Compiler.compile(a, "[^[:digit:]]", .{});
         defer prog.deinit();
         const states = prog.states;
         try expect(states[1].ranges.len == 2);
@@ -871,7 +901,7 @@ test "ascii class compile" {
     }
 
     {
-        var prog = try Compiler.compile(a, "[[:digit:][:^digit:]]");
+        var prog = try Compiler.compile(a, "[[:digit:][:^digit:]]", .{});
         defer prog.deinit();
         const states = prog.states;
         try expect(states[1].ranges.len == 1);
@@ -881,7 +911,7 @@ test "ascii class compile" {
     }
 
     {
-        var prog = try Compiler.compile(a, "[^[:digit:][:^digit:]]");
+        var prog = try Compiler.compile(a, "[^[:digit:][:^digit:]]", .{});
         defer prog.deinit();
         const states = prog.states;
         try expect(std.meta.activeTag(states[1]) == .fail);
@@ -893,7 +923,7 @@ test "assertions" {
     const expect = testing.expect;
 
     {
-        var prog = try Compiler.compile(a, "^re$");
+        var prog = try Compiler.compile(a, "^re$", .{});
         defer prog.deinit();
         const states = prog.states;
         try expect(states.len == 7);
@@ -910,3 +940,18 @@ test "assertions" {
         try expect(states[6] == .match);
     }
 }
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
+const assert = std.debug.assert;
+
+const Ast = @import("Ast.zig");
+const errors = @import("../errors.zig");
+const Diagnostics = errors.Diagnostics;
+const Options = @import("../Options.zig");
+const Parser = @import("Parser.zig");
+const Program = @import("Program.zig");
+const State = Program.State;
+const StateId = Program.StateId;
+const ByteRange = Program.ByteRange;

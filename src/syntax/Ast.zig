@@ -5,6 +5,11 @@ const ArrayList = std.ArrayList;
 const Ast = @This();
 
 nodes: []Node,
+arena: std.heap.ArenaAllocator.State,
+
+pub fn deinit(ast: *Ast, gpa: Allocator) void {
+    ast.arena.promote(gpa).deinit();
+}
 
 pub const Node = union(enum) {
     literal: Literal,
@@ -157,6 +162,12 @@ pub const Assertion = enum {
     /// `\B`
     not_word_boundary,
 };
+
+/// Returns the root node, which is the last node in Ast.nodes.
+pub fn root(ast: Ast) Node.Index {
+    std.debug.assert(ast.nodes.len > 0);
+    return @intCast(ast.nodes.len - 1);
+}
 
 pub fn format(
     self: @This(),

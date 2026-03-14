@@ -4,7 +4,7 @@ const Regex = @import("Regex.zig");
 pub fn main() !void {
     const gpa = std.heap.page_allocator;
     const pattern = "a(b|c)\\d";
-    var re = try Regex.compile(gpa, pattern);
+    var re = try Regex.compile(gpa, pattern, .{});
     defer re.deinit();
 
     const haystack = "zzab3yy";

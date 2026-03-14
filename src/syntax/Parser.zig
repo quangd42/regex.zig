@@ -1,50 +1,50 @@
-/// Parser errors surfaced to callers.
-pub const Error = error{
-    InvalidEscape,
-    EscapeAtEof,
-    UnexpectedClassClose,
-    ClassNotClosed,
-    InvalidClassRange,
-    InvalidAsciiClass,
-    UnexpectedGroupClose,
-    GroupNotClosed,
-    RepeatCountNotClosed,
-    MissingRepeatArgument, // '*', '+', '?' as first item in pattern
-    RepeatCountEmpty,
-    InvalidRepeatSize,
-    InvalidRepeatCountFormat,
-    OutOfMemory,
-};
-
 const Parser = @This();
 arena: ArenaAllocator,
 
+// Not owned by parser
 pattern: []const u8,
 offset: usize,
 
 nodes: ArrayList(Node) = .empty,
+stack: ArrayList(Frame) = .empty,
 
-group_stack: ArrayList(union(enum) {
-    concat: *NodeList, // The in-progress concat before group is opened
-    alt: *NodeList, // The in-progress alternation, which will include current concat
-}) = .empty,
+options: Options,
 
-// --- public methods ---
+pub const Error = error{Parse} || Allocator.Error;
 
-pub fn init(gpa: Allocator, pattern: []const u8) Parser {
+const Frame = union(enum) {
+    /// When a group is encountered, the in-progress concat is pushed to the stack as `prev`,
+    /// and a new concat is created to parse the group. When the group concat is finished,
+    /// this `prev` concat is popped and receives the group concat as child.
+    concat: struct {
+        /// The actual value of the prev concat.
+        value: *NodeList,
+        /// Span of the opening `(`, mostly used for unclosed-group diagnostics.
+        opener_span: Span,
+    },
+    /// When a new branch of alternation is encountered, the in-progress concat is finalized
+    /// and becomes child of an "alt builder". This alt builder is the one on top of the stack
+    /// if one exists, otherwise a new alt builder is created and pushed to the stack.
+    alt: *NodeList,
+};
+
+pub const Options = struct {
+    max_repeat: u16 = 1000,
+    diagnostics: ?*Diagnostics = null,
+};
+
+pub fn init(gpa: Allocator, pattern: []const u8, options: Options) Parser {
     return .{
         .pattern = pattern,
         .offset = 0,
         .arena = .init(gpa),
+        .options = options,
     };
 }
 
-pub fn deinit(p: *Parser) void {
-    p.arena.deinit();
-}
-
-/// Parser entry method. Returns an Ast whose root node is the last element.
-pub fn parse(p: *Parser) !Ast {
+/// Parser entry method. Returns an `Ast` which owns all allocated resources.
+pub fn parse(p: *Parser) Error!Ast {
+    errdefer p.arena.deinit();
     var concat = try p.createNodeList();
     const a = p.arena.allocator();
 
@@ -58,7 +58,7 @@ pub fn parse(p: *Parser) !Ast {
             '?' => try p.parseRepetition(concat, .question),
             '{' => try p.parseRepetition(concat, .range),
             '[' => try concat.append(a, try p.addNode(try p.parseClass())),
-            ']' => return error.UnexpectedClassClose,
+            ']' => return p.err(.unexpected_class_close),
             '\\' => try concat.append(a, try p.addNode(try p.parseEscape())),
             '.' => try concat.append(a, try p.addNode(.dot)),
             '^' => try concat.append(a, try p.addNode(.{ .assertion = .start_line_or_text })),
@@ -69,7 +69,7 @@ pub fn parse(p: *Parser) !Ast {
         }
     } else try p.popGroupAtEnd(concat);
 
-    return .{ .nodes = try p.nodes.toOwnedSlice(a) };
+    return .{ .nodes = try p.nodes.toOwnedSlice(a), .arena = p.arena.state };
 }
 
 // --- parser state manipulations ---
@@ -89,8 +89,8 @@ fn createNodeList(p: *Parser) !*NodeList {
 fn pushAlt(p: *Parser, cur_concat: *NodeList) !*NodeList {
     assert(p.prev() == '|');
     const a = p.arena.allocator();
-    if (p.group_stack.items.len > 0) {
-        const stack_top = p.group_stack.items[p.group_stack.items.len - 1];
+    if (p.stack.items.len > 0) {
+        const stack_top = p.stack.items[p.stack.items.len - 1];
         switch (stack_top) {
             .alt => |alt| {
                 // there is an existing alternation builder
@@ -107,7 +107,7 @@ fn pushAlt(p: *Parser, cur_concat: *NodeList) !*NodeList {
     const new_alt = try p.createNodeList();
     const concat_index = try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
     try new_alt.append(a, concat_index);
-    try p.group_stack.append(a, .{ .alt = new_alt });
+    try p.stack.append(a, .{ .alt = new_alt });
     return p.createNodeList();
 }
 
@@ -115,31 +115,34 @@ fn pushGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
     assert(p.prev() == '(');
     const a = p.arena.allocator();
     // shelf cur_concat and create new concat to parse group
-    try p.group_stack.append(a, .{ .concat = cur_concat });
+    try p.stack.append(a, .{ .concat = .{
+        .value = cur_concat,
+        .opener_span = p.prevSpan(),
+    } });
     return p.createNodeList();
 }
 
 fn popGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
     assert(p.prev() == ')');
     const a = p.arena.allocator();
-    const prev_group_state = p.group_stack.pop() orelse return error.UnexpectedGroupClose;
-    switch (prev_group_state) {
-        .concat => |prev_concat| {
+    const stack_top = p.stack.pop() orelse return p.err(.unexpected_group_close);
+    switch (stack_top) {
+        .concat => |concat| {
             // cur_concat contains the content of the Group node
             const concat_index = try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
             const group_index = try p.addNode(.{ .group = .{ .node = concat_index } });
-            try prev_concat.append(a, group_index);
-            return prev_concat;
+            try concat.value.append(a, group_index);
+            return concat.value;
         },
         .alt => |alt| {
             // cur_concat is the else branch of last alternation, pop stack once more to find prev_concat
             try alt.append(a, try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } }));
-            const prev_prev_group_state = p.group_stack.pop() orelse return error.UnexpectedGroupClose;
-            switch (prev_prev_group_state) {
-                .concat => |prev_concat| {
+            const next_top = p.stack.pop() orelse return p.err(.unexpected_group_close);
+            switch (next_top) {
+                .concat => |concat| {
                     const alt_index = try p.addNode(.{ .alternation = .{ .nodes = try alt.toOwnedSlice(a) } });
-                    try prev_concat.append(a, try p.addNode(.{ .group = .{ .node = alt_index } }));
-                    return prev_concat;
+                    try concat.value.append(a, try p.addNode(.{ .group = .{ .node = alt_index } }));
+                    return concat.value;
                 },
                 .alt => {
                     // we never push alternation builder twice
@@ -154,26 +157,28 @@ fn popGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
 /// either the stack is empty or there is only one alternation builder on the stack.
 /// Otherwise an error is returned.
 fn popGroupAtEnd(p: *Parser, cur_concat: *NodeList) !void {
-    if (p.group_stack.items.len > 1) {
-        return error.GroupNotClosed;
+    if (p.stack.items.len > 1) {
+        return p.errAt(.group_not_closed, p.unclosedGroupSpan());
     }
     const a = p.arena.allocator();
 
-    // valid: nothing on the stack, return the final concat node
-    const prev_group_state = p.group_stack.pop() orelse {
+    const stack_top = p.stack.pop() orelse {
+        // valid state: nothing on the stack, simply wrap up the current concat node as root
         _ = try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
         return;
     };
 
-    switch (prev_group_state) {
-        .concat => return error.GroupNotClosed,
+    switch (stack_top) {
+        .concat => |concat| return p.errAt(.group_not_closed, concat.opener_span),
         .alt => |alt| {
-            // valid: return the final alt node
+            // valid state: current concat is a branch of alternation
             const concat_index = try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
             try alt.append(a, concat_index);
             _ = try p.addNode(.{ .alternation = .{ .nodes = try alt.toOwnedSlice(a) } });
         },
     }
+
+    assert(p.stack.items.len == 0);
 }
 
 // --- parser funcs ---
@@ -185,7 +190,7 @@ fn parseRepetition(
 ) !void {
     assert(p.prev() == '*' or p.prev() == '+' or p.prev() == '?' or p.prev() == '{');
 
-    if (concat.items.len == 0) return error.MissingRepeatArgument;
+    if (concat.items.len == 0) return p.err(.missing_repeat_argument);
     const last_concat_node = concat.items[concat.items.len - 1];
 
     const rep_kind: Ast.Repetition.Kind =
@@ -194,17 +199,18 @@ fn parseRepetition(
             .star => .zero_or_more,
             .plus => .one_or_more,
             .range => b: {
+                const span_start = p.offset - 1; // asserted to be valid at top of function
                 const min = try p.parseDecimal();
                 if (p.eatIf('}')) {
-                    break :b .{ .exactly = min };
+                    break :b .{ .exactly = min.value };
                 }
-                if (!p.eatIf(',')) return error.InvalidRepeatCountFormat;
-                if (p.eatIf('}')) break :b .{ .at_least = min };
-                if (p.atEnd()) return error.RepeatCountNotClosed;
+                if (!p.eatIf(',')) return p.errAt(.invalid_repeat_count_format, p.spanFrom(span_start));
+                if (p.eatIf('}')) break :b .{ .at_least = min.value };
+                if (p.atEnd()) return p.errAt(.repeat_count_not_closed, p.spanFrom(span_start));
                 const max = try p.parseDecimal();
-                if (max < min) return error.InvalidRepeatSize;
-                if (!p.eatIf('}')) return error.RepeatCountNotClosed;
-                break :b .{ .between = .{ .min = min, .max = max } };
+                if (max.value < min.value) return p.errWithAuxAt(.invalid_repeat_size, max.span, min.span);
+                if (!p.eatIf('}')) return p.errAt(.repeat_count_not_closed, p.spanFrom(span_start));
+                break :b .{ .between = .{ .min = min.value, .max = max.value } };
             },
         };
     const lazy = p.eatIf('?');
@@ -214,24 +220,22 @@ fn parseRepetition(
     concat.items[concat.items.len - 1] = repeat_node;
 }
 
-fn parseDecimal(p: *Parser) !u16 {
+fn parseDecimal(p: *Parser) !struct { value: u16, span: Span } {
     var pos = p.offset;
     while (pos < p.pattern.len) : (pos += 1) {
         const ch = p.pattern[pos];
         if (ch < '0' or ch > '9') break;
     }
-    if (pos == p.offset) return error.RepeatCountEmpty;
+    if (pos == p.offset) return p.errCurrent(.repeat_count_empty);
 
-    // NOTE: Limit the value of parsed decimal to 1000 to avoid pathological NFA growth.
-    // This limit is used by RE2 familly (Go, Rust) so we're following suit.
-    const max = 1000;
-    var out: u16 = 0;
+    var val: u16 = 0;
     for (p.pattern[p.offset..pos]) |c| {
-        out = out * 10 + c - '0';
-        if (out > max) return error.InvalidRepeatSize;
+        val = val * 10 + c - '0';
+        if (val > p.options.max_repeat) return p.errAt(.invalid_repeat_size, .{ .start = p.offset, .end = pos });
     }
+    const span: Span = .{ .start = p.offset, .end = pos };
     p.offset = pos;
-    return out;
+    return .{ .value = val, .span = span };
 }
 
 fn parseClassItem(p: *Parser, c: u8) !Class.Item {
@@ -241,10 +245,10 @@ fn parseClassItem(p: *Parser, c: u8) !Class.Item {
     };
 }
 
-fn unwrapItemToLiteral(item: Class.Item) !Ast.Literal {
+fn unwrapItemToLiteral(p: *Parser, item: Class.Item, span: Span) !Ast.Literal {
     return switch (item) {
         .literal => |lit| lit,
-        else => error.InvalidClassRange,
+        else => p.errAt(.invalid_class_range, span),
     };
 }
 
@@ -252,10 +256,13 @@ fn parseClass(p: *Parser) !Node {
     assert(p.prev() == '[');
     const a = p.arena.allocator();
     var cls: ArrayList(Class.Item) = .empty;
+    var last_item_span: Span = undefined;
     const cls_negated = p.eatIf('^');
 
+    const cls_span_start = p.offset - 1; // asserted p.prev() == '['
     while (p.eat()) |c| {
         if (c == ']' and cls.items.len > 0) break;
+        var item_span_start = p.offset - 1;
         const item: Class.Item = item: {
             if (c == '-') {
                 // Range item
@@ -263,11 +270,14 @@ fn parseClass(p: *Parser) !Node {
                     break :item .{ .literal = .{ .verbatim = '-' } };
                 }
                 const top = cls.pop().?;
-                const from_lit = try unwrapItemToLiteral(top);
-                const to_char = p.eat() orelse return error.ClassNotClosed;
+                const from_lit = try p.unwrapItemToLiteral(top, last_item_span);
+                const to_char = p.eat() orelse return p.errAt(.class_not_closed, p.spanFrom(cls_span_start));
+                const to_item_span_start = p.offset - 1;
                 const to_item = try p.parseClassItem(to_char);
-                const to_lit = try unwrapItemToLiteral(to_item);
-                if (from_lit.char() > to_lit.char()) return error.InvalidClassRange;
+                const to_item_span = p.spanFrom(to_item_span_start);
+                const to_lit = try p.unwrapItemToLiteral(to_item, to_item_span);
+                if (from_lit.char() > to_lit.char()) return p.errWithAuxAt(.invalid_class_range, to_item_span, last_item_span);
+                item_span_start = last_item_span.start; // set `item_span_start` to start of `from_lit`
                 break :item .{ .range = .{ .from = from_lit, .to = to_lit } };
             } else if (c == '[' and p.eatIf(':')) {
                 // ASCII class (POSIX class) item
@@ -275,10 +285,11 @@ fn parseClass(p: *Parser) !Node {
                 const start = p.offset;
                 const end = while (p.eat()) |cur| {
                     if (cur == ':') break p.offset - 1;
-                } else return error.ClassNotClosed;
-                if (!p.eatIf(']')) return error.InvalidAsciiClass;
+                } else return p.errAt(.class_not_closed, p.spanFrom(cls_span_start));
+                if (!p.eatIf(']')) return p.errAt(.invalid_ascii_class, p.spanFrom(item_span_start));
                 const name = p.pattern[start..end];
-                const kind = Class.Ascii.Kind.fromName(name) orelse return error.InvalidAsciiClass;
+                const kind = Class.Ascii.Kind.fromName(name) orelse
+                    return p.errAt(.invalid_ascii_class, p.spanFrom(item_span_start));
                 break :item .{ .ascii = .{ .kind = kind, .negated = negated } };
             } else {
                 break :item try p.parseClassItem(c);
@@ -286,7 +297,8 @@ fn parseClass(p: *Parser) !Node {
         };
 
         try cls.append(a, item);
-    } else return error.ClassNotClosed;
+        last_item_span = .{ .start = item_span_start, .end = p.offset };
+    } else return p.errAt(.class_not_closed, p.spanFrom(cls_span_start));
 
     return .{ .class = .{
         .items = try cls.toOwnedSlice(a),
@@ -296,19 +308,19 @@ fn parseClass(p: *Parser) !Node {
 
 fn parseEscape(p: *Parser) !Node {
     assert(p.prev() == '\\');
-    const c = p.eat() orelse return error.EscapeAtEof;
+    const c = p.eat() orelse return p.err(.escape_at_eof);
     if (parseClassPerl(c)) |perl| return .{ .class_perl = perl };
     if (parseAssertion(c)) |asrt| return .{ .assertion = asrt };
     if (try p.parseEscapeLiteral(c)) |lit| return .{ .literal = lit };
-    return error.InvalidEscape;
+    return p.err(.invalid_escape);
 }
 
 fn parseEscapeInClass(p: *Parser) !Class.Item {
     assert(p.prev() == '\\');
-    const c = p.eat() orelse return error.EscapeAtEof;
+    const c = p.eat() orelse return p.err(.escape_at_eof);
     if (parseClassPerl(c)) |perl| return .{ .perl = perl };
     if (try p.parseEscapeLiteral(c)) |lit| return .{ .literal = lit };
-    return error.InvalidEscape;
+    return p.err(.invalid_escape);
 }
 
 fn parseCStyleEscape(c: u8) Ast.Literal.CStyle {
@@ -325,18 +337,20 @@ fn parseCStyleEscape(c: u8) Ast.Literal.CStyle {
 
 fn parseHex(p: *Parser) !Ast.Literal {
     assert(p.prev() == 'x');
-    if (p.offset + 2 > p.pattern.len) return error.InvalidEscape;
+    const hex_span_start = p.offset - 1;
+    if (p.offset + 2 > p.pattern.len)
+        return p.errAt(.invalid_escape, .{ .start = hex_span_start, .end = p.pattern.len });
     var byte: u8 = 0;
     for (p.pattern[p.offset..][0..2]) |c| {
+        p.offset += 1;
         const d = switch (c) {
             '0'...'9' => c - '0',
             'a'...'f' => c - 'a' + 10,
             'A'...'F' => c - 'A' + 10,
-            else => return error.InvalidEscape,
+            else => return p.errAt(.invalid_escape, p.spanFrom(hex_span_start)),
         };
         byte = (byte << 4) | d;
     }
-    p.offset += 2;
     return .{ .hex = byte };
 }
 
@@ -370,6 +384,53 @@ fn parseClassPerl(c: u8) ?Class.Perl {
         'S' => .{ .kind = .space, .negated = true },
         else => null,
     };
+}
+
+// --- errors ---
+
+fn errAt(p: *Parser, tag: Diagnostics.ParseError, span: Span) error{Parse} {
+    return p.errWithAuxAt(tag, span, null);
+}
+
+fn errWithAuxAt(p: *Parser, tag: Diagnostics.ParseError, span: Span, aux_span: ?Span) error{Parse} {
+    assert(span.isValidFor(p.pattern.len));
+    if (aux_span) |as| assert(as.isValidFor(p.pattern.len));
+    if (p.options.diagnostics) |diagnostics| {
+        diagnostics.* = Diagnostics.fromParse(tag, span, aux_span);
+    }
+    return error.Parse;
+}
+
+fn err(p: *Parser, tag: Diagnostics.ParseError) error{Parse} {
+    return p.errAt(tag, p.prevSpan());
+}
+
+fn prevSpan(p: *Parser) Span {
+    const end = p.offset;
+    const start = if (end == 0) 0 else end - 1;
+    return .{ .start = start, .end = end };
+}
+
+fn errCurrent(p: *Parser, tag: Diagnostics.ParseError) error{Parse} {
+    const start = p.offset;
+    const end = if (start < p.pattern.len) start + 1 else start;
+    return p.errAt(tag, .{ .start = start, .end = end });
+}
+
+fn spanFrom(p: *Parser, start: usize) Span {
+    return .{ .start = start, .end = p.offset };
+}
+
+fn unclosedGroupSpan(p: *Parser) Span {
+    var i = p.stack.items.len;
+    while (i > 0) {
+        i -= 1;
+        switch (p.stack.items[i]) {
+            .concat => |concat| return concat.opener_span,
+            .alt => {},
+        }
+    }
+    panic("unclosedGroupSpan: missing concat frame on parser stack", .{});
 }
 
 // --- string iteration helpers ---
@@ -407,24 +468,47 @@ fn prev(p: *Parser) u8 {
 const testing = std.testing;
 
 fn expectParseOk(gpa: Allocator, pattern: []const u8, expected: []const u8) !void {
-    var parser: Parser = .init(gpa, pattern);
-    defer parser.deinit();
-    const ast = try parser.parse();
+    var parser: Parser = .init(gpa, pattern, .{});
+    var ast = try parser.parse();
+    defer ast.deinit(gpa);
     var buffer: [256]u8 = undefined;
     const actual = try std.fmt.bufPrint(&buffer, "{f}", .{ast});
     try testing.expectEqualStrings(expected, actual);
 }
 
-fn expectParseError(gpa: Allocator, pattern: []const u8, expected: anyerror) !void {
-    var parser: Parser = .init(gpa, pattern);
-    defer parser.deinit();
-    try testing.expectError(expected, parser.parse());
+fn expectParseError(
+    gpa: Allocator,
+    pattern: []const u8,
+    expected: struct {
+        err: Diagnostics.ParseError,
+        span: Span,
+        aux_span: ?Span = null,
+    },
+) !void {
+    var diagnostics: Diagnostics = undefined;
+    var parser: Parser = .init(gpa, pattern, .{ .diagnostics = &diagnostics });
+    try testing.expectError(error.Parse, parser.parse());
+    switch (diagnostics) {
+        .parse => |diag| {
+            try testing.expect(diag.span.isValidFor(pattern.len));
+            if (diag.aux_span) |aux_span| {
+                try testing.expect(aux_span.isValidFor(pattern.len));
+            }
+            try testing.expectEqual(expected.err, diag.err);
+            try testing.expectEqual(expected.span, diag.span);
+            try testing.expectEqual(expected.aux_span, diag.aux_span);
+        },
+        .compile => return error.TestUnexpectedResult,
+    }
 }
 
 test "parse to string round trip" {
     const gpa = testing.allocator;
 
     const patterns = &[_][]const u8{
+        // empty pattern
+        "",
+
         // group & alternation
         "a(b|c|\\d)",
         "\\d|a|\\s",
@@ -484,64 +568,141 @@ test "parse errors" {
 
     const test_cases = &[_]struct {
         pattern: []const u8,
-        expected: anyerror,
+        tag: Diagnostics.ParseError,
+        start: usize,
+        end: usize,
+        aux_span: ?Span = null,
     }{
         .{
             .pattern = "a|b\\", // trailing backslash
-            .expected = error.EscapeAtEof,
+            .tag = .escape_at_eof,
+            .start = 3,
+            .end = 4,
         },
         .{
             .pattern = "*",
-            .expected = error.MissingRepeatArgument,
+            .tag = .missing_repeat_argument,
+            .start = 0,
+            .end = 1,
         },
         .{
             .pattern = "a{,}",
-            .expected = error.RepeatCountEmpty,
+            .tag = .repeat_count_empty,
+            .start = 2,
+            .end = 3,
         },
         .{
             .pattern = "a{5,",
-            .expected = error.RepeatCountNotClosed,
+            .tag = .repeat_count_not_closed,
+            .start = 1,
+            .end = 4,
         },
         .{
             .pattern = "a{5.0}",
-            .expected = error.InvalidRepeatCountFormat,
+            .tag = .invalid_repeat_count_format,
+            .start = 1,
+            .end = 3,
+        },
+        .{
+            .pattern = "a{1001}",
+            .tag = .invalid_repeat_size,
+            .start = 2,
+            .end = 6,
+        },
+        .{
+            .pattern = "a{5,3}",
+            .tag = .invalid_repeat_size,
+            .start = 4,
+            .end = 5,
+            .aux_span = .{ .start = 2, .end = 3 },
         },
         .{
             .pattern = "\\z0B",
-            .expected = error.InvalidEscape,
+            .tag = .invalid_escape,
+            .start = 1,
+            .end = 2,
         },
         .{
             .pattern = "\\x1",
-            .expected = error.InvalidEscape,
+            .tag = .invalid_escape,
+            .start = 1,
+            .end = 3,
         },
         .{
             .pattern = "\\xZZ",
-            .expected = error.InvalidEscape,
+            .tag = .invalid_escape,
+            .start = 1,
+            .end = 3,
         },
         .{
             .pattern = "[",
-            .expected = error.ClassNotClosed,
+            .tag = .class_not_closed,
+            .start = 0,
+            .end = 1,
+        },
+        .{
+            .pattern = "[a-",
+            .tag = .class_not_closed,
+            .start = 0,
+            .end = 3,
+        },
+        .{
+            .pattern = "[[:alpha",
+            .tag = .class_not_closed,
+            .start = 0,
+            .end = 8,
         },
         .{
             .pattern = "]",
-            .expected = error.UnexpectedClassClose,
+            .tag = .unexpected_class_close,
+            .start = 0,
+            .end = 1,
+        },
+        .{
+            .pattern = ")",
+            .tag = .unexpected_group_close,
+            .start = 0,
+            .end = 1,
+        },
+        .{
+            .pattern = "(",
+            .tag = .group_not_closed,
+            .start = 0,
+            .end = 1,
+        },
+        .{
+            .pattern = "(ab",
+            .tag = .group_not_closed,
+            .start = 0,
+            .end = 1,
         },
         .{
             .pattern = "[z-a]",
-            .expected = error.InvalidClassRange,
+            .tag = .invalid_class_range,
+            .start = 3,
+            .end = 4,
+            .aux_span = .{ .start = 1, .end = 2 },
         },
         .{
             .pattern = "[a-\\d]",
-            .expected = error.InvalidClassRange,
+            .tag = .invalid_class_range,
+            .start = 3,
+            .end = 5,
         },
         .{
             .pattern = "[[:alpaca:]]",
-            .expected = error.InvalidAsciiClass,
+            .tag = .invalid_ascii_class,
+            .start = 1,
+            .end = 11,
         },
     };
 
     for (test_cases) |tc| {
-        try expectParseError(gpa, tc.pattern, tc.expected);
+        try expectParseError(gpa, tc.pattern, .{
+            .err = tc.tag,
+            .span = .{ .start = tc.start, .end = tc.end },
+            .aux_span = tc.aux_span,
+        });
     }
 }
 
@@ -555,6 +716,9 @@ const Ast = @import("Ast.zig");
 const Node = Ast.Node;
 const Class = Ast.Class;
 const NodeList = ArrayList(Node.Index);
+const errors = @import("../errors.zig");
+const Diagnostics = errors.Diagnostics;
+const Span = errors.Span;
 
 const assert = std.debug.assert;
 const panic = std.debug.panic;
