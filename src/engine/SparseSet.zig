@@ -55,34 +55,36 @@ pub fn slice(s: *SparseSet) []StateId {
 }
 
 const testing = std.testing;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
 
 test "SparseSet add/remove basics" {
     var set = try SparseSet.init(testing.allocator, 8, 8);
     defer set.deinit(testing.allocator);
 
-    _ = set.add(1);
-    _ = set.add(2);
-    _ = set.add(3);
-    try testing.expectEqual(@as(usize, 3), set.slice().len);
-    try testing.expectEqual(@as(StateId, 1), set.slice()[0]);
-    try testing.expectEqual(@as(StateId, 2), set.slice()[1]);
-    try testing.expectEqual(@as(StateId, 3), set.slice()[2]);
+    try expect(set.add(1));
+    try expect(set.add(2));
+    try expect(set.add(3));
+    try expectEqual(3, set.slice().len);
+    try expectEqual(1, set.slice()[0]);
+    try expectEqual(2, set.slice()[1]);
+    try expectEqual(3, set.slice()[2]);
 }
 
 test "SparseSet clear and dedupe" {
     var set = try SparseSet.init(testing.allocator, 4, 4);
     defer set.deinit(testing.allocator);
 
-    _ = set.add(0);
-    _ = set.add(1);
-    _ = set.add(1);
-    try testing.expectEqual(@as(usize, 2), set.slice().len);
+    try expect(set.add(0));
+    try expect(set.add(1));
+    try expect(!set.add(1));
+    try expectEqual(2, set.slice().len);
 
     _ = set.clear();
-    try testing.expectEqual(@as(usize, 0), set.slice().len);
+    try expectEqual(0, set.slice().len);
 
-    _ = set.add(3);
-    _ = set.add(3);
-    try testing.expectEqual(@as(usize, 1), set.slice().len);
-    try testing.expectEqual(@as(StateId, 3), set.slice()[0]);
+    try expect(set.add(3));
+    try expect(!set.add(3));
+    try expectEqual(1, set.slice().len);
+    try expectEqual(3, set.slice()[0]);
 }

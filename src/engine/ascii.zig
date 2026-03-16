@@ -1,5 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
+const expect = testing.expect;
 
 pub fn isWordByte(c: u8) bool {
     const set: [256]bool = comptime b: {
@@ -14,7 +15,7 @@ pub fn isWordByte(c: u8) bool {
 }
 
 test "word byte" {
-    try testing.expect(isWordByte('z'));
-    try testing.expect(isWordByte('_'));
-    try testing.expect(!isWordByte(' '));
+    try expect(isWordByte('z'));
+    try expect(isWordByte('_'));
+    try expect(!isWordByte(' '));
 }

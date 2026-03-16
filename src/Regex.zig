@@ -55,6 +55,8 @@ pub fn capturesLen(re: *Regex) usize {
 }
 
 const testing = std.testing;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
 const errors = @import("errors.zig");
 const Diagnostics = errors.Diagnostics;
 const Span = errors.Span;
@@ -65,20 +67,20 @@ test "usage: basic compile, match, find" {
     {
         var re = try Regex.compile(gpa, "a(b|c|)\\d", .{});
         defer re.deinit();
-        try testing.expect(re.match("ab0"));
-        try testing.expect(re.match("ac1"));
-        try testing.expect(re.match("a1"));
-        try testing.expect(!re.match("aadd"));
+        try expect(re.match("ab0"));
+        try expect(re.match("ac1"));
+        try expect(re.match("a1"));
+        try expect(!re.match("aadd"));
 
-        try testing.expectEqual(Match{ .start = 2, .end = 5 }, re.find("xyac12").?);
-        try testing.expectEqual(Match{ .start = 2, .end = 4 }, re.find("mna1x").?);
-        try testing.expectEqual(null, re.find("aadd"));
+        try expectEqual(Match{ .start = 2, .end = 5 }, re.find("xyac12").?);
+        try expectEqual(Match{ .start = 2, .end = 4 }, re.find("mna1x").?);
+        try expectEqual(null, re.find("aadd"));
     }
     {
         var re = try Regex.compile(gpa, "[\\d\\D]", .{});
         defer re.deinit();
-        try testing.expect(re.match("5"));
-        try testing.expect(re.match("a"));
+        try expect(re.match("5"));
+        try expect(re.match("a"));
     }
 }
 
@@ -90,9 +92,9 @@ test "usage: error with diagnostics" {
         var re = Regex.compile(gpa, pattern, .{ .diagnostics = &diag }) catch {
             switch (diag) {
                 .parse => |parse_diag| {
-                    try testing.expectEqual(Diagnostics.ParseError.invalid_class_range, parse_diag.err);
-                    try testing.expectEqual(Span{ .start = 3, .end = 4 }, parse_diag.span);
-                    try testing.expectEqual(Span{ .start = 1, .end = 2 }, parse_diag.aux_span.?);
+                    try expectEqual(.invalid_class_range, parse_diag.err);
+                    try expectEqual(Span{ .start = 3, .end = 4 }, parse_diag.span);
+                    try expectEqual(Span{ .start = 1, .end = 2 }, parse_diag.aux_span.?);
                 },
                 .compile => return error.TestUnexpectedResult,
             }
@@ -111,8 +113,8 @@ test "usage: error with diagnostics" {
             switch (diag) {
                 .compile => |compile_diag| switch (compile_diag) {
                     .too_many_states => |state_limit| {
-                        try testing.expectEqual(@as(usize, 4), state_limit.limit);
-                        try testing.expectEqual(@as(usize, 5), state_limit.count);
+                        try expectEqual(4, state_limit.limit);
+                        try expectEqual(5, state_limit.count);
                     },
                     else => return error.TestUnexpectedResult,
                 },
@@ -123,8 +125,4 @@ test "usage: error with diagnostics" {
         re.deinit();
         return error.TestUnexpectedResult;
     }
-}
-
-test {
-    _ = @import("tests/regex_api.zig");
 }

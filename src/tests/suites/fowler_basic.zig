@@ -1,14 +1,8 @@
 const std = @import("std");
+const Match = @import("../../Regex.zig").Match;
 
-const Regex = @import("../Regex.zig");
-const Match = Regex.Match;
-
-const Case = struct {
-    name: []const u8,
-    pattern: []const u8,
-    haystack: []const u8,
-    expected: []const ?Match,
-};
+const runner = @import("../harness/runner.zig");
+const Case = runner.Case;
 
 const cases = [_]Case{
     .{
@@ -581,51 +575,7 @@ const all_cases = [_]Case{
 };
 
 test "fowler basic subset" {
-    const testing = std.testing;
-    const gpa = testing.allocator;
+    const gpa = std.testing.allocator;
 
-    const verbose = false;
-
-    for (all_cases) |tc| {
-        var re = try Regex.compile(gpa, tc.pattern, .{});
-        defer re.deinit();
-
-        if (verbose) re.engine.prog.dumpDebug();
-
-        if (!re.match(tc.haystack)) {
-            std.debug.print("FAIL [{s}] match() returned false\n", .{tc.name});
-            return error.TestUnexpectedResult;
-        }
-
-        const maybe_found = re.find(tc.haystack);
-        if (maybe_found == null) {
-            std.debug.print("FAIL [{s}] find() returned null\n", .{tc.name});
-            return error.TestUnexpectedResult;
-        }
-        testing.expectEqual(tc.expected[0], maybe_found.?) catch {
-            std.debug.print("  FAIL [{s}] find() mismatch\n", .{tc.name});
-            return error.TestExpectedEqual;
-        };
-
-        const maybe_caps = try re.findCapturesAlloc(gpa, tc.haystack);
-        if (maybe_caps == null) {
-            std.debug.print("FAIL [{s}] findCaptures() returned null\n", .{tc.name});
-            return error.TestUnexpectedResult;
-        }
-
-        var caps = maybe_caps.?;
-        defer caps.deinit(gpa);
-
-        testing.expectEqual(tc.expected.len, caps.groups.len) catch {
-            std.debug.print("  FAIL [{s}] group count mismatch\n", .{tc.name});
-            return error.TestExpectedEqual;
-        };
-        for (tc.expected, 0..) |value, i| {
-            testing.expectEqual(value, caps.groups[i]) catch {
-                std.debug.print("  FAIL [{s}] group[{d}] mismatch\n", .{ tc.name, i });
-                return error.TestExpectedEqual;
-            };
-        }
-        if (verbose) std.debug.print("{s} passed.\n", .{tc.name});
-    }
+    try runner.runSuite(gpa, "fowler_basic", &all_cases, .pikevm);
 }

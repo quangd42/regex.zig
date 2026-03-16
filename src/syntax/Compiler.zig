@@ -939,6 +939,19 @@ test "assertions" {
         try expect(states[5].capture.out == 6);
         try expect(states[6] == .match);
     }
+    {
+        var prog = try Compiler.compile(a, "\\b\\B", .{});
+        defer prog.deinit();
+        const states = prog.states;
+        try expect(states.len == 5);
+        try expect(states[0].capture.out == 1);
+        try expect(states[1].assert.pred == .word_boundary);
+        try expect(states[1].assert.out == 2);
+        try expect(states[2].assert.pred == .not_word_boundary);
+        try expect(states[2].assert.out == 3);
+        try expect(states[3].capture.out == 4);
+        try expect(states[4] == .match);
+    }
 }
 
 const std = @import("std");

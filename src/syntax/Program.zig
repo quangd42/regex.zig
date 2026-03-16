@@ -112,7 +112,7 @@ pub const State = union(enum) {
     pub const Id = u32;
 };
 
-pub fn dumpDebug(prog: Program) void {
+pub fn dump(prog: Program) void {
     std.debug.print("States\n", .{});
     for (prog.states, 0..) |state, i| {
         switch (state) {

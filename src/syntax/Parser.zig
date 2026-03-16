@@ -539,6 +539,7 @@ test "parse to string round trip" {
 
         // assertions
         "^re$",
+        "\\b\\B",
     };
 
     for (patterns) |pattern| {
@@ -694,6 +695,13 @@ test "parse errors" {
             .tag = .invalid_ascii_class,
             .start = 1,
             .end = 11,
+        },
+        .{
+            // compatibility decision: `\b` is assertion-only, not class item.
+            .pattern = "[\\b]",
+            .tag = .invalid_escape,
+            .start = 2,
+            .end = 3,
         },
     };
 

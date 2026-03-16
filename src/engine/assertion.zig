@@ -1,5 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
+const expect = testing.expect;
 
 const Program = @import("../syntax/Program.zig");
 const Predicate = Program.Predicate;
@@ -23,18 +24,18 @@ fn isWordBoundary(haystack: []const u8, at: Offset) bool {
 
 test "word boundary at beginning and end of text" {
     const haystack = "word";
-    try testing.expect(isWordBoundary(haystack, 0));
-    try testing.expect(isWordBoundary(haystack, haystack.len));
+    try expect(isWordBoundary(haystack, 0));
+    try expect(isWordBoundary(haystack, haystack.len));
 }
 
 test "word boundary between non-word and word bytes" {
     const haystack = "a b";
-    try testing.expect(isWordBoundary(haystack, 0));
-    try testing.expect(isWordBoundary(haystack, 1));
-    try testing.expect(isWordBoundary(haystack, 2));
-    try testing.expect(!isWordBoundary("ab", 1));
+    try expect(isWordBoundary(haystack, 0));
+    try expect(isWordBoundary(haystack, 1));
+    try expect(isWordBoundary(haystack, 2));
+    try expect(!isWordBoundary("ab", 1));
 }
 
 test "word boundary on empty input" {
-    try testing.expect(!isWordBoundary("", 0));
+    try expect(!isWordBoundary("", 0));
 }
