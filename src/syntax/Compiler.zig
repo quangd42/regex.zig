@@ -123,7 +123,7 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) !Frag {
                 .alt = .{ .start = @intCast(c.branches.items.len), .len = @intCast(alt.nodes.len) },
             });
             // branches order preserves leftmost-first semantics.
-            try c.branches.ensureTotalCapacity(a, alt.nodes.len);
+            try c.branches.ensureTotalCapacity(a, c.branches.items.len + alt.nodes.len);
             var frag: Frag = .{ .id = id, .outs = .empty };
             for (alt.nodes) |index| {
                 const sub_frag = try c.compileNode(ast, index);

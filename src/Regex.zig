@@ -1,16 +1,18 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const Regex = @This();
-const Compiler = @import("syntax/Compiler.zig");
+const PikeVm = @import("engine/PikeVm.zig");
+const errors = @import("errors.zig");
+pub const Diagnostics = errors.Diagnostics;
+pub const Span = errors.Span;
 pub const Options = @import("Options.zig");
-const PikeVM = @import("engine/PikeVm.zig");
-
+const Compiler = @import("syntax/Compiler.zig");
 const types = @import("types.zig");
 pub const Match = types.Match;
 pub const Captures = types.Captures;
 
-engine: PikeVM,
+const Regex = @This();
+engine: PikeVm,
 
 pub fn compile(gpa: Allocator, pattern: []const u8, options: Options) !Regex {
     const prog = try Compiler.compile(gpa, pattern, options);
@@ -57,9 +59,6 @@ pub fn capturesLen(re: *Regex) usize {
 const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
-const errors = @import("errors.zig");
-const Diagnostics = errors.Diagnostics;
-const Span = errors.Span;
 
 test "usage: basic compile, match, find" {
     const gpa = testing.allocator;

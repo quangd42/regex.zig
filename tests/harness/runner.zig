@@ -38,6 +38,8 @@ const Stats = struct {
 };
 
 pub fn runSuite(gpa: Allocator, suite_name: []const u8, cases: []const Case, comptime backend: Backend) !void {
+    comptime caps_mod.assertCapBaseline(backend);
+
     var config: Config = try .init(gpa);
     defer config.deinit(gpa);
 
@@ -172,7 +174,7 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const print = std.debug.print;
 
-const Regex = @import("../../Regex.zig");
+const Regex = @import("export_test").Regex;
 const Backend = @import("adapters.zig").Backend;
 const caps_mod = @import("capabilities.zig");
 const CapSet = caps_mod.CapSet;

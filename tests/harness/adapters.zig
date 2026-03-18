@@ -6,15 +6,12 @@ pub const Backend = enum {
 
     pub fn supports(comptime self: Backend, cap: Capability) bool {
         const row = cap_backend_map.get(cap);
-        return switch (self) {
-            .pikevm => row.pikevm,
-            else => @panic("backend not yet supported"),
-        };
+        return @field(row, @tagName(self));
     }
 
-    pub fn capabilities(comptime self: Backend) Capabilities {
+    pub fn capabilities(comptime self: Backend) CapSet {
         return comptime blk: {
-            var set = Capabilities.initEmpty();
+            var set = CapSet.initEmpty();
             for (std.meta.fields(Capability)) |field| {
                 const cap: Capability = @enumFromInt(field.value);
                 if (self.supports(cap)) set.insert(cap);
@@ -34,7 +31,7 @@ pub const Backend = enum {
 
     pub fn Adapter(comptime self: Backend) type {
         return struct {
-            capabilities: Capabilities = self.capabilities(),
+            capabilities: CapSet = self.capabilities(),
 
             pub fn run(gpa: Allocator, tc: Case, opts: RunOptions) !Result {
                 const prog = try Compiler.compile(gpa, tc.pattern, tc.options);
@@ -133,15 +130,17 @@ fn assertFnShape(
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const PikeVm = @import("../../engine/PikeVm.zig");
-const Program = @import("../../syntax/Program.zig");
-const Compiler = @import("../../syntax/Compiler.zig");
+const export_test = @import("export_test");
+const Regex = export_test.Regex;
+const PikeVm = export_test.PikeVm;
+const Program = export_test.Program;
+const Compiler = export_test.Compiler;
+
 const caps = @import("capabilities.zig");
 const Capability = caps.Capability;
-const Capabilities = caps.CapSet;
+const CapSet = caps.CapSet;
 const cap_backend_map = caps.cap_backend_map;
 const runner = @import("runner.zig");
 const Case = runner.Case;
 const Result = runner.Result;
 const RunOptions = runner.RunOptions;
-const Regex = @import("../../Regex.zig");

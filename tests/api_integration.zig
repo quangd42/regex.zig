@@ -1,19 +1,5 @@
 //! Smoke tests for public `Regex` API integration during development.
 //! These are small end-to-end checks across parser, compiler, and engine layers.
-const std = @import("std");
-const testing = std.testing;
-const expect = testing.expect;
-const expectEqual = testing.expectEqual;
-const expectError = testing.expectError;
-const gpa = testing.allocator;
-
-const Regex = @import("../../Regex.zig");
-const Match = Regex.Match;
-
-const errors = @import("../../errors.zig");
-const Diagnostics = errors.Diagnostics;
-const Span = errors.Span;
-
 test "basic end-to-end" {
     {
         var re = try Regex.compile(gpa, "a(b|c|)\\d", .{});
@@ -219,3 +205,16 @@ test "diag invalid state limit" {
         .parse => return error.TestUnexpectedResult,
     }
 }
+
+const std = @import("std");
+const testing = std.testing;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
+const expectError = testing.expectError;
+const gpa = testing.allocator;
+
+const export_test = @import("export_test");
+const Regex = export_test.Regex;
+const Match = Regex.Match;
+const Diagnostics = export_test.Diagnostics;
+const Span = export_test.Span;
