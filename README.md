@@ -4,15 +4,15 @@
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
 
 `regex.zig` provides a native regular expression engine for Zig in the RE2
-family. It guarantees a worst-case `O(m * n)` search time, where `m` is proportional
-to the size of the regex and `n` is proportional to the size of the input being
-searched. As such, it intentionally omits features that would compromise predictable
-search behavior, such as look-around and backreferences.
+family. It guarantees worst-case `O(m * n)` search time, where `m` is
+proportional to the size of the regex and `n` is proportional to the size of
+the input being searched. Certain Perl/PCRE features are omitted, most notably
+backreferences and arbitrary lookahead or lookbehind assertions.
 
 ## Status
 
-This project is pre-1.0. The library is already usable, but syntax coverage, compile
-flags, API ergonomics and performance features are still evolving quickly.
+This project is pre-1.0. The library is already usable, but syntax coverage, compile flags,
+API ergonomics, and performance features are still evolving quickly.
 
 ## Why
 
@@ -77,6 +77,25 @@ For more examples, see [src/main.zig](src/main.zig).
 ## Documentation
 
 See [docs/README.md](docs/README.md).
+
+## Acknowledgements
+
+As this project is a RE2-family regex engine, Go's [`regexp` package](https://github.com/golang/go/tree/master/src/regexp)
+and Rust's [`regex` repo](https://github.com/rust-lang/regex)
+are frequently used as references, including but not limited to API design,
+testing strategy, and general project structure.
+
+## AI Assistance
+
+AI is used extensively in this project as a research and productivity tool: to
+understand regex concepts, locate relevant reference code in the Go and Rust
+codebases, help organize and plan the project, assist with code review, and
+generate some unit tests.
+
+None of the code in the main engine under `src/` is AI generated. That is an
+intentional choice for two reasons: 1) this project is a learning exercise for
+me, and 2) AI generated Zig code is often too quirky or too low-quality for the
+core implementation.
 
 ## License
 

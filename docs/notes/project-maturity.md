@@ -174,6 +174,7 @@ Chosen so far:
 - add repo description/topics/homepage as part of polish
 - generated-files freshness check is deferred until later
 - GitHub Pages is not needed yet
+- defer issue templates until the project is ready for broader public feedback
 
 Recommended repo metadata:
 
