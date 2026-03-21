@@ -2,220 +2,265 @@
 //! Source: tests/fowler/data/basic.toml
 //! DO NOT EDIT.
 
+const std = @import("std");
+const gpa = std.testing.allocator;
 const harness = @import("../harness.zig");
-const runner = harness.runner;
+const exec = harness.execute;
 const caps = harness.capabilities;
+const root = @import("root");
 const Match = @import("export_test").Regex.Match;
 
-pub const cases = [_]runner.Case{
-    .{
-        .name = "basic3",
+fn config() exec.Options {
+    return .{ .verbose = root.verbose, .trace = root.trace };
+}
+
+fn executeCase(tc: exec.Case) !void {
+    try exec.execute(gpa, tc, .pikevm, config());
+}
+
+test "fowler/basic/basic3" {
+    try executeCase(.{
+        .name = "fowler/basic/basic3",
         .pattern = "abracadabra$",
-        .haystack = "abracadabracadabra",
-        .expected = &[_]?Match{
-            .{ .start = 7, .end = 18 },
-        },
+        .input = .{ .haystack = "abracadabracadabra", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 7, .end = 18 }},
         .requires = caps.requires(.{ .anchor_line_end = true }),
-    },
-    .{
-        .name = "basic4",
+    });
+}
+
+test "fowler/basic/basic4" {
+    try executeCase(.{
+        .name = "fowler/basic/basic4",
         .pattern = "a...b",
-        .haystack = "abababbb",
-        .expected = &[_]?Match{
-            .{ .start = 2, .end = 7 },
-        },
+        .input = .{ .haystack = "abababbb", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 2, .end = 7 }},
         .requires = caps.requires(.{ .dot = true }),
-    },
-    .{
-        .name = "basic5",
+    });
+}
+
+test "fowler/basic/basic5" {
+    try executeCase(.{
+        .name = "fowler/basic/basic5",
         .pattern = "XXXXXX",
-        .haystack = "..XXXXXX",
-        .expected = &[_]?Match{
-            .{ .start = 2, .end = 8 },
-        },
-    },
-    .{
-        .name = "basic6",
+        .input = .{ .haystack = "..XXXXXX", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 2, .end = 8 }},
+    });
+}
+
+test "fowler/basic/basic6" {
+    try executeCase(.{
+        .name = "fowler/basic/basic6",
         .pattern = "\\)",
-        .haystack = "()",
-        .expected = &[_]?Match{
-            .{ .start = 1, .end = 2 },
-        },
-    },
-    .{
-        .name = "basic7",
+        .input = .{ .haystack = "()", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 1, .end = 2 }},
+    });
+}
+
+test "fowler/basic/basic7" {
+    try executeCase(.{
+        .name = "fowler/basic/basic7",
         .pattern = "a]",
-        .haystack = "a]a",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 2 },
-        },
+        .input = .{ .haystack = "a]a", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 2 }},
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic9",
+    });
+}
+
+test "fowler/basic/basic9" {
+    try executeCase(.{
+        .name = "fowler/basic/basic9",
         .pattern = "\\}",
-        .haystack = "}",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 1 },
-        },
+        .input = .{ .haystack = "}", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 1 }},
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic10",
+    });
+}
+
+test "fowler/basic/basic10" {
+    try executeCase(.{
+        .name = "fowler/basic/basic10",
         .pattern = "\\]",
-        .haystack = "]",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 1 },
-        },
+        .input = .{ .haystack = "]", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 1 }},
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic12",
+    });
+}
+
+test "fowler/basic/basic12" {
+    try executeCase(.{
+        .name = "fowler/basic/basic12",
         .pattern = "]",
-        .haystack = "]",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 1 },
-        },
+        .input = .{ .haystack = "]", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 1 }},
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic15",
+    });
+}
+
+test "fowler/basic/basic15" {
+    try executeCase(.{
+        .name = "fowler/basic/basic15",
         .pattern = "^a",
-        .haystack = "ax",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 1 },
-        },
+        .input = .{ .haystack = "ax", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 1 }},
         .requires = caps.requires(.{ .anchor_line_start = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic16",
+    });
+}
+
+test "fowler/basic/basic16" {
+    try executeCase(.{
+        .name = "fowler/basic/basic16",
         .pattern = "\\^a",
-        .haystack = "a^a",
-        .expected = &[_]?Match{
-            .{ .start = 1, .end = 3 },
-        },
-    },
-    .{
-        .name = "basic17",
+        .input = .{ .haystack = "a^a", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 1, .end = 3 }},
+    });
+}
+
+test "fowler/basic/basic17" {
+    try executeCase(.{
+        .name = "fowler/basic/basic17",
         .pattern = "a\\^",
-        .haystack = "a^",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 2 },
-        },
+        .input = .{ .haystack = "a^", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 2 }},
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic18",
+    });
+}
+
+test "fowler/basic/basic18" {
+    try executeCase(.{
+        .name = "fowler/basic/basic18",
         .pattern = "a$",
-        .haystack = "aa",
-        .expected = &[_]?Match{
-            .{ .start = 1, .end = 2 },
-        },
+        .input = .{ .haystack = "aa", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 1, .end = 2 }},
         .requires = caps.requires(.{ .anchor_line_end = true }),
-    },
-    .{
-        .name = "basic19",
+    });
+}
+
+test "fowler/basic/basic19" {
+    try executeCase(.{
+        .name = "fowler/basic/basic19",
         .pattern = "a\\$",
-        .haystack = "a$",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 2 },
-        },
+        .input = .{ .haystack = "a$", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 2 }},
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic20",
+    });
+}
+
+test "fowler/basic/basic20" {
+    try executeCase(.{
+        .name = "fowler/basic/basic20",
         .pattern = "^$",
-        .haystack = "",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 0 },
-        },
+        .input = .{ .haystack = "", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 0 }},
         .requires = caps.requires(.{ .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic21",
+    });
+}
+
+test "fowler/basic/basic21" {
+    try executeCase(.{
+        .name = "fowler/basic/basic21",
         .pattern = "$^",
-        .haystack = "",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 0 },
-        },
+        .input = .{ .haystack = "", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 0 }},
         .requires = caps.requires(.{ .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic22",
+    });
+}
+
+test "fowler/basic/basic22" {
+    try executeCase(.{
+        .name = "fowler/basic/basic22",
         .pattern = "a($)",
-        .haystack = "aa",
+        .input = .{ .haystack = "aa", .anchored = false },
         .expected = &[_]?Match{
             .{ .start = 1, .end = 2 },
             .{ .start = 2, .end = 2 },
         },
         .requires = caps.requires(.{ .anchor_line_end = true }),
-    },
-    .{
-        .name = "basic23",
+    });
+}
+
+test "fowler/basic/basic23" {
+    try executeCase(.{
+        .name = "fowler/basic/basic23",
         .pattern = "a*(^a)",
-        .haystack = "aa",
+        .input = .{ .haystack = "aa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .anchor_line_start = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic24",
+    });
+}
+
+test "fowler/basic/basic24" {
+    try executeCase(.{
+        .name = "fowler/basic/basic24",
         .pattern = "(..)*(...)*",
-        .haystack = "a",
+        .input = .{ .haystack = "a", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 0 },
             null,
             null,
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic25",
+    });
+}
+
+test "fowler/basic/basic25" {
+    try executeCase(.{
+        .name = "fowler/basic/basic25",
         .pattern = "(..)*(...)*",
-        .haystack = "abcd",
+        .input = .{ .haystack = "abcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 2, .end = 4 },
             null,
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic26",
+    });
+}
+
+test "fowler/basic/basic26" {
+    try executeCase(.{
+        .name = "fowler/basic/basic26",
         .pattern = "(ab|a)(bc|c)",
-        .haystack = "abc",
+        .input = .{ .haystack = "abc", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 3 },
             .{ .start = 0, .end = 2 },
             .{ .start = 2, .end = 3 },
         },
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic27",
+    });
+}
+
+test "fowler/basic/basic27" {
+    try executeCase(.{
+        .name = "fowler/basic/basic27",
         .pattern = "(ab)c|abc",
-        .haystack = "abc",
+        .input = .{ .haystack = "abc", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 3 },
             .{ .start = 0, .end = 2 },
         },
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic28",
+    });
+}
+
+test "fowler/basic/basic28" {
+    try executeCase(.{
+        .name = "fowler/basic/basic28",
         .pattern = "a{0}b",
-        .haystack = "ab",
-        .expected = &[_]?Match{
-            .{ .start = 1, .end = 2 },
-        },
+        .input = .{ .haystack = "ab", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 1, .end = 2 }},
         .requires = caps.requires(.{ .rep_exact = true }),
-    },
-    .{
-        .name = "basic29",
+    });
+}
+
+test "fowler/basic/basic29" {
+    try executeCase(.{
+        .name = "fowler/basic/basic29",
         .pattern = "(a*)(b?)(b+)b{3}",
-        .haystack = "aaabbbbbbb",
+        .input = .{ .haystack = "aaabbbbbbb", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 10 },
             .{ .start = 0, .end = 3 },
@@ -223,11 +268,14 @@ pub const cases = [_]runner.Case{
             .{ .start = 4, .end = 7 },
         },
         .requires = caps.requires(.{ .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic30",
+    });
+}
+
+test "fowler/basic/basic30" {
+    try executeCase(.{
+        .name = "fowler/basic/basic30",
         .pattern = "(a*)(b{0,1})(b{1,})b{3}",
-        .haystack = "aaabbbbbbb",
+        .input = .{ .haystack = "aaabbbbbbb", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 10 },
             .{ .start = 0, .end = 3 },
@@ -235,43 +283,55 @@ pub const cases = [_]runner.Case{
             .{ .start = 4, .end = 7 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_exact = true, .rep_min = true, .rep_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic32",
+    });
+}
+
+test "fowler/basic/basic32" {
+    try executeCase(.{
+        .name = "fowler/basic/basic32",
         .pattern = "((a|a)|a)",
-        .haystack = "a",
+        .input = .{ .haystack = "a", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic33",
+    });
+}
+
+test "fowler/basic/basic33" {
+    try executeCase(.{
+        .name = "fowler/basic/basic33",
         .pattern = "(a*)(a|aa)",
-        .haystack = "aaaa",
+        .input = .{ .haystack = "aaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 0, .end = 3 },
             .{ .start = 3, .end = 4 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic34",
+    });
+}
+
+test "fowler/basic/basic34" {
+    try executeCase(.{
+        .name = "fowler/basic/basic34",
         .pattern = "a*(a.|aa)",
-        .haystack = "aaaa",
+        .input = .{ .haystack = "aaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 2, .end = 4 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic35",
+    });
+}
+
+test "fowler/basic/basic35" {
+    try executeCase(.{
+        .name = "fowler/basic/basic35",
         .pattern = "a(b)|c(d)|a(e)f",
-        .haystack = "aef",
+        .input = .{ .haystack = "aef", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 3 },
             null,
@@ -279,281 +339,334 @@ pub const cases = [_]runner.Case{
             .{ .start = 1, .end = 2 },
         },
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic36",
+    });
+}
+
+test "fowler/basic/basic36" {
+    try executeCase(.{
+        .name = "fowler/basic/basic36",
         .pattern = "(a|b)?.*",
-        .haystack = "b",
+        .input = .{ .haystack = "b", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic37",
+    });
+}
+
+test "fowler/basic/basic37" {
+    try executeCase(.{
+        .name = "fowler/basic/basic37",
         .pattern = "(a|b)c|a(b|c)",
-        .haystack = "ac",
+        .input = .{ .haystack = "ac", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 1 },
             null,
         },
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic38",
+    });
+}
+
+test "fowler/basic/basic38" {
+    try executeCase(.{
+        .name = "fowler/basic/basic38",
         .pattern = "(a|b)c|a(b|c)",
-        .haystack = "ab",
+        .input = .{ .haystack = "ab", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             null,
             .{ .start = 1, .end = 2 },
         },
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic39",
+    });
+}
+
+test "fowler/basic/basic39" {
+    try executeCase(.{
+        .name = "fowler/basic/basic39",
         .pattern = "(a|b)*c|(a|ab)*c",
-        .haystack = "abc",
+        .input = .{ .haystack = "abc", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 3 },
             .{ .start = 1, .end = 2 },
             null,
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic40",
+    });
+}
+
+test "fowler/basic/basic40" {
+    try executeCase(.{
+        .name = "fowler/basic/basic40",
         .pattern = "(a|b)*c|(a|ab)*c",
-        .haystack = "xc",
+        .input = .{ .haystack = "xc", .anchored = false },
         .expected = &[_]?Match{
             .{ .start = 1, .end = 2 },
             null,
             null,
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true }),
-    },
-    .{
-        .name = "basic41",
+    });
+}
+
+test "fowler/basic/basic41" {
+    try executeCase(.{
+        .name = "fowler/basic/basic41",
         .pattern = "(.a|.b).*|.*(.a|.b)",
-        .haystack = "xa",
+        .input = .{ .haystack = "xa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 2 },
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic42",
+    });
+}
+
+test "fowler/basic/basic42" {
+    try executeCase(.{
+        .name = "fowler/basic/basic42",
         .pattern = "a?(ab|ba)ab",
-        .haystack = "abab",
+        .input = .{ .haystack = "abab", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 0, .end = 2 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_one = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic43",
+    });
+}
+
+test "fowler/basic/basic43" {
+    try executeCase(.{
+        .name = "fowler/basic/basic43",
         .pattern = "a?(ac{0}b|ba)ab",
-        .haystack = "abab",
+        .input = .{ .haystack = "abab", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 0, .end = 2 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_one = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic44",
+    });
+}
+
+test "fowler/basic/basic44" {
+    try executeCase(.{
+        .name = "fowler/basic/basic44",
         .pattern = "ab|abab",
-        .haystack = "abbabab",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 2 },
-        },
+        .input = .{ .haystack = "abbabab", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 2 }},
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic45",
+    });
+}
+
+test "fowler/basic/basic45" {
+    try executeCase(.{
+        .name = "fowler/basic/basic45",
         .pattern = "aba|bab|bba",
-        .haystack = "baaabbbaba",
-        .expected = &[_]?Match{
-            .{ .start = 5, .end = 8 },
-        },
+        .input = .{ .haystack = "baaabbbaba", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 5, .end = 8 }},
         .requires = caps.requires(.{ .alternation = true }),
-    },
-    .{
-        .name = "basic46",
+    });
+}
+
+test "fowler/basic/basic46" {
+    try executeCase(.{
+        .name = "fowler/basic/basic46",
         .pattern = "aba|bab",
-        .haystack = "baaabbbaba",
-        .expected = &[_]?Match{
-            .{ .start = 6, .end = 9 },
-        },
+        .input = .{ .haystack = "baaabbbaba", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 6, .end = 9 }},
         .requires = caps.requires(.{ .alternation = true }),
-    },
-    .{
-        .name = "basic47",
+    });
+}
+
+test "fowler/basic/basic47" {
+    try executeCase(.{
+        .name = "fowler/basic/basic47",
         .pattern = "(aa|aaa)*|(a|aaaaa)",
-        .haystack = "aa",
+        .input = .{ .haystack = "aa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 2 },
             null,
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic48",
+    });
+}
+
+test "fowler/basic/basic48" {
+    try executeCase(.{
+        .name = "fowler/basic/basic48",
         .pattern = "(a.|.a.)*|(a|.a...)",
-        .haystack = "aa",
+        .input = .{ .haystack = "aa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 2 },
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic49",
+    });
+}
+
+test "fowler/basic/basic49" {
+    try executeCase(.{
+        .name = "fowler/basic/basic49",
         .pattern = "ab|a",
-        .haystack = "xabc",
-        .expected = &[_]?Match{
-            .{ .start = 1, .end = 3 },
-        },
+        .input = .{ .haystack = "xabc", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 1, .end = 3 }},
         .requires = caps.requires(.{ .alternation = true }),
-    },
-    .{
-        .name = "basic50",
+    });
+}
+
+test "fowler/basic/basic50" {
+    try executeCase(.{
+        .name = "fowler/basic/basic50",
         .pattern = "ab|a",
-        .haystack = "xxabc",
-        .expected = &[_]?Match{
-            .{ .start = 2, .end = 4 },
-        },
+        .input = .{ .haystack = "xxabc", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 2, .end = 4 }},
         .requires = caps.requires(.{ .alternation = true }),
-    },
-    .{
-        .name = "basic51",
+    });
+}
+
+test "fowler/basic/basic51" {
+    try executeCase(.{
+        .name = "fowler/basic/basic51",
         .pattern = "(Ab|cD)*",
-        .haystack = "aBcD",
+        .input = .{ .haystack = "aBcD", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 2, .end = 4 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .ignore_case = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic52",
+    });
+}
+
+test "fowler/basic/basic52" {
+    try executeCase(.{
+        .name = "fowler/basic/basic52",
         .pattern = "[^-]",
-        .haystack = "--a",
-        .expected = &[_]?Match{
-            .{ .start = 2, .end = 3 },
-        },
+        .input = .{ .haystack = "--a", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 2, .end = 3 }},
         .requires = caps.requires(.{ .class_simple = true, .class_negated = true }),
-    },
-    .{
-        .name = "basic53",
+    });
+}
+
+test "fowler/basic/basic53" {
+    try executeCase(.{
+        .name = "fowler/basic/basic53",
         .pattern = "[a-]*",
-        .haystack = "--a",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "--a", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic54",
+    });
+}
+
+test "fowler/basic/basic54" {
+    try executeCase(.{
+        .name = "fowler/basic/basic54",
         .pattern = "[a-m-]*",
-        .haystack = "--amoma--",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 4 },
-        },
+        .input = .{ .haystack = "--amoma--", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 4 }},
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .class_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic55",
+    });
+}
+
+test "fowler/basic/basic55" {
+    try executeCase(.{
+        .name = "fowler/basic/basic55",
         .pattern = ":::1:::0:|:::1:1:0:",
-        .haystack = ":::0:::1:::1:::0:",
-        .expected = &[_]?Match{
-            .{ .start = 8, .end = 17 },
-        },
+        .input = .{ .haystack = ":::0:::1:::1:::0:", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 8, .end = 17 }},
         .requires = caps.requires(.{ .alternation = true }),
-    },
-    .{
-        .name = "basic56",
+    });
+}
+
+test "fowler/basic/basic56" {
+    try executeCase(.{
+        .name = "fowler/basic/basic56",
         .pattern = ":::1:::0:|:::1:1:1:",
-        .haystack = ":::0:::1:::1:::0:",
-        .expected = &[_]?Match{
-            .{ .start = 8, .end = 17 },
-        },
+        .input = .{ .haystack = ":::0:::1:::1:::0:", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 8, .end = 17 }},
         .requires = caps.requires(.{ .alternation = true }),
-    },
-    .{
-        .name = "basic57",
+    });
+}
+
+test "fowler/basic/basic57" {
+    try executeCase(.{
+        .name = "fowler/basic/basic57",
         .pattern = "[[:upper:]]",
-        .haystack = "A",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 1 },
-        },
+        .input = .{ .haystack = "A", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 1 }},
         .requires = caps.requires(.{ .class_simple = true, .class_posix = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic58",
+    });
+}
+
+test "fowler/basic/basic58" {
+    try executeCase(.{
+        .name = "fowler/basic/basic58",
         .pattern = "[[:lower:]]+",
-        .haystack = "`az{",
-        .expected = &[_]?Match{
-            .{ .start = 1, .end = 3 },
-        },
+        .input = .{ .haystack = "`az{", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 1, .end = 3 }},
         .requires = caps.requires(.{ .rep_one_or_more = true, .class_simple = true, .class_posix = true }),
-    },
-    .{
-        .name = "basic59",
+    });
+}
+
+test "fowler/basic/basic59" {
+    try executeCase(.{
+        .name = "fowler/basic/basic59",
         .pattern = "[[:upper:]]+",
-        .haystack = "@AZ[",
-        .expected = &[_]?Match{
-            .{ .start = 1, .end = 3 },
-        },
+        .input = .{ .haystack = "@AZ[", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 1, .end = 3 }},
         .requires = caps.requires(.{ .rep_one_or_more = true, .class_simple = true, .class_posix = true }),
-    },
-    .{
-        .name = "basic65",
+    });
+}
+
+test "fowler/basic/basic65" {
+    try executeCase(.{
+        .name = "fowler/basic/basic65",
         .pattern = "\\n",
-        .haystack = "\\n",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 1 },
-        },
+        .input = .{ .haystack = "\\n", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 1 }},
         .requires = caps.requires(.{ .escape_c_style = true, .case_unescape = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic66",
+    });
+}
+
+test "fowler/basic/basic66" {
+    try executeCase(.{
+        .name = "fowler/basic/basic66",
         .pattern = "\\n",
-        .haystack = "\\n",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 1 },
-        },
+        .input = .{ .haystack = "\\n", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 1 }},
         .requires = caps.requires(.{ .escape_c_style = true, .case_unescape = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic67",
+    });
+}
+
+test "fowler/basic/basic67" {
+    try executeCase(.{
+        .name = "fowler/basic/basic67",
         .pattern = "[^a]",
-        .haystack = "\\n",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 1 },
-        },
+        .input = .{ .haystack = "\\n", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 1 }},
         .requires = caps.requires(.{ .class_simple = true, .class_negated = true, .case_unescape = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic68",
+    });
+}
+
+test "fowler/basic/basic68" {
+    try executeCase(.{
+        .name = "fowler/basic/basic68",
         .pattern = "\\na",
-        .haystack = "\\na",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 2 },
-        },
+        .input = .{ .haystack = "\\na", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 2 }},
         .requires = caps.requires(.{ .escape_c_style = true, .case_unescape = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic69",
+    });
+}
+
+test "fowler/basic/basic69" {
+    try executeCase(.{
+        .name = "fowler/basic/basic69",
         .pattern = "(a)(b)(c)",
-        .haystack = "abc",
+        .input = .{ .haystack = "abc", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 3 },
             .{ .start = 0, .end = 1 },
@@ -561,788 +674,922 @@ pub const cases = [_]runner.Case{
             .{ .start = 2, .end = 3 },
         },
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic70",
+    });
+}
+
+test "fowler/basic/basic70" {
+    try executeCase(.{
+        .name = "fowler/basic/basic70",
         .pattern = "xxx",
-        .haystack = "xxx",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "xxx", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic72",
+    });
+}
+
+test "fowler/basic/basic72" {
+    try executeCase(.{
+        .name = "fowler/basic/basic72",
         .pattern = "(?:^|[ (,;])(?:(?:(?:[Ff]eb[^ ]* *|0*2/|\\* */?)0*[6-7]))(?:[^0-9]|$)",
-        .haystack = "feb 6,",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 6 },
-        },
+        .input = .{ .haystack = "feb 6,", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 6 }},
         .requires = caps.requires(.{ .alternation = true, .noncapture_group = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .class_simple = true, .class_range = true, .class_negated = true, .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic74",
+    });
+}
+
+test "fowler/basic/basic74" {
+    try executeCase(.{
+        .name = "fowler/basic/basic74",
         .pattern = "(?:^|[ (,;])(?:(?:(?:[Ff]eb[^ ]* *|0*2/|\\* */?)0*[6-7]))(?:[^0-9]|$)",
-        .haystack = "2/7",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "2/7", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .alternation = true, .noncapture_group = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .class_simple = true, .class_range = true, .class_negated = true, .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic76",
+    });
+}
+
+test "fowler/basic/basic76" {
+    try executeCase(.{
+        .name = "fowler/basic/basic76",
         .pattern = "(?:^|[ (,;])(?:(?:(?:[Ff]eb[^ ]* *|0*2/|\\* */?)0*[6-7]))(?:[^0-9]|$)",
-        .haystack = "feb 1,Feb 6",
-        .expected = &[_]?Match{
-            .{ .start = 5, .end = 11 },
-        },
+        .input = .{ .haystack = "feb 1,Feb 6", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 5, .end = 11 }},
         .requires = caps.requires(.{ .alternation = true, .noncapture_group = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .class_simple = true, .class_range = true, .class_negated = true, .anchor_line_start = true, .anchor_line_end = true }),
-    },
-    .{
-        .name = "basic78",
+    });
+}
+
+test "fowler/basic/basic78" {
+    try executeCase(.{
+        .name = "fowler/basic/basic78",
         .pattern = "(((?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:x))))))))))))))))))))))))))))))",
-        .haystack = "x",
+        .input = .{ .haystack = "x", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .noncapture_group = true, .rep_zero_or_one = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic80",
+    });
+}
+
+test "fowler/basic/basic80" {
+    try executeCase(.{
+        .name = "fowler/basic/basic80",
         .pattern = "(((?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:(?:x))))))))))))))))))))))))))))))*",
-        .haystack = "xx",
+        .input = .{ .haystack = "xx", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 1, .end = 2 },
             .{ .start = 1, .end = 2 },
         },
         .requires = caps.requires(.{ .noncapture_group = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic81",
+    });
+}
+
+test "fowler/basic/basic81" {
+    try executeCase(.{
+        .name = "fowler/basic/basic81",
         .pattern = "a?(ab|ba)*",
-        .haystack = "ababababababababababababababababababababababababababababababababababababababababa",
+        .input = .{ .haystack = "ababababababababababababababababababababababababababababababababababababababababa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 81 },
             .{ .start = 79, .end = 81 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic82",
+    });
+}
+
+test "fowler/basic/basic82" {
+    try executeCase(.{
+        .name = "fowler/basic/basic82",
         .pattern = "abaa|abbaa|abbbaa|abbbbaa",
-        .haystack = "ababbabbbabbbabbbbabbbbaa",
-        .expected = &[_]?Match{
-            .{ .start = 18, .end = 25 },
-        },
+        .input = .{ .haystack = "ababbabbbabbbabbbbabbbbaa", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 18, .end = 25 }},
         .requires = caps.requires(.{ .alternation = true }),
-    },
-    .{
-        .name = "basic83",
+    });
+}
+
+test "fowler/basic/basic83" {
+    try executeCase(.{
+        .name = "fowler/basic/basic83",
         .pattern = "abaa|abbaa|abbbaa|abbbbaa",
-        .haystack = "ababbabbbabbbabbbbabaa",
-        .expected = &[_]?Match{
-            .{ .start = 18, .end = 22 },
-        },
+        .input = .{ .haystack = "ababbabbbabbbabbbbabaa", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 18, .end = 22 }},
         .requires = caps.requires(.{ .alternation = true }),
-    },
-    .{
-        .name = "basic84",
+    });
+}
+
+test "fowler/basic/basic84" {
+    try executeCase(.{
+        .name = "fowler/basic/basic84",
         .pattern = "aaac|aabc|abac|abbc|baac|babc|bbac|bbbc",
-        .haystack = "baaabbbabac",
-        .expected = &[_]?Match{
-            .{ .start = 7, .end = 11 },
-        },
+        .input = .{ .haystack = "baaabbbabac", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 7, .end = 11 }},
         .requires = caps.requires(.{ .alternation = true }),
-    },
-    .{
-        .name = "basic86",
+    });
+}
+
+test "fowler/basic/basic86" {
+    try executeCase(.{
+        .name = "fowler/basic/basic86",
         .pattern = ".*",
-        .haystack = "\\x01\\x7f",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 2 },
-        },
+        .input = .{ .haystack = "\\x01\\x7f", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 2 }},
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_more = true, .case_unescape = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic87",
+    });
+}
+
+test "fowler/basic/basic87" {
+    try executeCase(.{
+        .name = "fowler/basic/basic87",
         .pattern = "aaaa|bbbb|cccc|ddddd|eeeeee|fffffff|gggg|hhhh|iiiii|jjjjj|kkkkk|llll",
-        .haystack = "XaaaXbbbXcccXdddXeeeXfffXgggXhhhXiiiXjjjXkkkXlllXcbaXaaaa",
-        .expected = &[_]?Match{
-            .{ .start = 53, .end = 57 },
-        },
+        .input = .{ .haystack = "XaaaXbbbXcccXdddXeeeXfffXgggXhhhXiiiXjjjXkkkXlllXcbaXaaaa", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 53, .end = 57 }},
         .requires = caps.requires(.{ .alternation = true }),
-    },
-    .{
-        .name = "basic89",
+    });
+}
+
+test "fowler/basic/basic89" {
+    try executeCase(.{
+        .name = "fowler/basic/basic89",
         .pattern = "a*a*a*a*a*b",
-        .haystack = "aaaaaaaaab",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 10 },
-        },
+        .input = .{ .haystack = "aaaaaaaaab", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 10 }},
         .requires = caps.requires(.{ .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic90",
+    });
+}
+
+test "fowler/basic/basic90" {
+    try executeCase(.{
+        .name = "fowler/basic/basic90",
         .pattern = "^",
-        .haystack = "",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 0 },
-        },
+        .input = .{ .haystack = "", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 0 }},
         .requires = caps.requires(.{ .anchor_line_start = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic91",
+    });
+}
+
+test "fowler/basic/basic91" {
+    try executeCase(.{
+        .name = "fowler/basic/basic91",
         .pattern = "$",
-        .haystack = "",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 0 },
-        },
+        .input = .{ .haystack = "", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 0 }},
         .requires = caps.requires(.{ .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic92",
+    });
+}
+
+test "fowler/basic/basic92" {
+    try executeCase(.{
+        .name = "fowler/basic/basic92",
         .pattern = "^$",
-        .haystack = "",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 0 },
-        },
+        .input = .{ .haystack = "", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 0 }},
         .requires = caps.requires(.{ .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic93",
+    });
+}
+
+test "fowler/basic/basic93" {
+    try executeCase(.{
+        .name = "fowler/basic/basic93",
         .pattern = "^a$",
-        .haystack = "a",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 1 },
-        },
+        .input = .{ .haystack = "a", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 1 }},
         .requires = caps.requires(.{ .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic94",
+    });
+}
+
+test "fowler/basic/basic94" {
+    try executeCase(.{
+        .name = "fowler/basic/basic94",
         .pattern = "abc",
-        .haystack = "abc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "abc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic95",
+    });
+}
+
+test "fowler/basic/basic95" {
+    try executeCase(.{
+        .name = "fowler/basic/basic95",
         .pattern = "abc",
-        .haystack = "xabcy",
-        .expected = &[_]?Match{
-            .{ .start = 1, .end = 4 },
-        },
-    },
-    .{
-        .name = "basic96",
+        .input = .{ .haystack = "xabcy", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 1, .end = 4 }},
+    });
+}
+
+test "fowler/basic/basic96" {
+    try executeCase(.{
+        .name = "fowler/basic/basic96",
         .pattern = "abc",
-        .haystack = "ababc",
-        .expected = &[_]?Match{
-            .{ .start = 2, .end = 5 },
-        },
-    },
-    .{
-        .name = "basic97",
+        .input = .{ .haystack = "ababc", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 2, .end = 5 }},
+    });
+}
+
+test "fowler/basic/basic97" {
+    try executeCase(.{
+        .name = "fowler/basic/basic97",
         .pattern = "ab*c",
-        .haystack = "abc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "abc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic98",
+    });
+}
+
+test "fowler/basic/basic98" {
+    try executeCase(.{
+        .name = "fowler/basic/basic98",
         .pattern = "ab*bc",
-        .haystack = "abc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "abc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic99",
+    });
+}
+
+test "fowler/basic/basic99" {
+    try executeCase(.{
+        .name = "fowler/basic/basic99",
         .pattern = "ab*bc",
-        .haystack = "abbc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 4 },
-        },
+        .input = .{ .haystack = "abbc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 4 }},
         .requires = caps.requires(.{ .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic100",
+    });
+}
+
+test "fowler/basic/basic100" {
+    try executeCase(.{
+        .name = "fowler/basic/basic100",
         .pattern = "ab*bc",
-        .haystack = "abbbbc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 6 },
-        },
+        .input = .{ .haystack = "abbbbc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 6 }},
         .requires = caps.requires(.{ .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic101",
+    });
+}
+
+test "fowler/basic/basic101" {
+    try executeCase(.{
+        .name = "fowler/basic/basic101",
         .pattern = "ab+bc",
-        .haystack = "abbc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 4 },
-        },
+        .input = .{ .haystack = "abbc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 4 }},
         .requires = caps.requires(.{ .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic102",
+    });
+}
+
+test "fowler/basic/basic102" {
+    try executeCase(.{
+        .name = "fowler/basic/basic102",
         .pattern = "ab+bc",
-        .haystack = "abbbbc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 6 },
-        },
+        .input = .{ .haystack = "abbbbc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 6 }},
         .requires = caps.requires(.{ .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic103",
+    });
+}
+
+test "fowler/basic/basic103" {
+    try executeCase(.{
+        .name = "fowler/basic/basic103",
         .pattern = "ab?bc",
-        .haystack = "abbc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 4 },
-        },
+        .input = .{ .haystack = "abbc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 4 }},
         .requires = caps.requires(.{ .rep_zero_or_one = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic104",
+    });
+}
+
+test "fowler/basic/basic104" {
+    try executeCase(.{
+        .name = "fowler/basic/basic104",
         .pattern = "ab?bc",
-        .haystack = "abc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "abc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .rep_zero_or_one = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic105",
+    });
+}
+
+test "fowler/basic/basic105" {
+    try executeCase(.{
+        .name = "fowler/basic/basic105",
         .pattern = "ab?c",
-        .haystack = "abc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "abc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .rep_zero_or_one = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic106",
+    });
+}
+
+test "fowler/basic/basic106" {
+    try executeCase(.{
+        .name = "fowler/basic/basic106",
         .pattern = "^abc$",
-        .haystack = "abc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "abc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic107",
+    });
+}
+
+test "fowler/basic/basic107" {
+    try executeCase(.{
+        .name = "fowler/basic/basic107",
         .pattern = "^abc",
-        .haystack = "abcc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "abcc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .anchor_line_start = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic108",
+    });
+}
+
+test "fowler/basic/basic108" {
+    try executeCase(.{
+        .name = "fowler/basic/basic108",
         .pattern = "abc$",
-        .haystack = "aabc",
-        .expected = &[_]?Match{
-            .{ .start = 1, .end = 4 },
-        },
+        .input = .{ .haystack = "aabc", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 1, .end = 4 }},
         .requires = caps.requires(.{ .anchor_line_end = true }),
-    },
-    .{
-        .name = "basic109",
+    });
+}
+
+test "fowler/basic/basic109" {
+    try executeCase(.{
+        .name = "fowler/basic/basic109",
         .pattern = "^",
-        .haystack = "abc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 0 },
-        },
+        .input = .{ .haystack = "abc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 0 }},
         .requires = caps.requires(.{ .anchor_line_start = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic110",
+    });
+}
+
+test "fowler/basic/basic110" {
+    try executeCase(.{
+        .name = "fowler/basic/basic110",
         .pattern = "$",
-        .haystack = "abc",
-        .expected = &[_]?Match{
-            .{ .start = 3, .end = 3 },
-        },
+        .input = .{ .haystack = "abc", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 3, .end = 3 }},
         .requires = caps.requires(.{ .anchor_line_end = true }),
-    },
-    .{
-        .name = "basic111",
+    });
+}
+
+test "fowler/basic/basic111" {
+    try executeCase(.{
+        .name = "fowler/basic/basic111",
         .pattern = "a.c",
-        .haystack = "abc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "abc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .dot = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic112",
+    });
+}
+
+test "fowler/basic/basic112" {
+    try executeCase(.{
+        .name = "fowler/basic/basic112",
         .pattern = "a.c",
-        .haystack = "axc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "axc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .dot = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic113",
+    });
+}
+
+test "fowler/basic/basic113" {
+    try executeCase(.{
+        .name = "fowler/basic/basic113",
         .pattern = "a.*c",
-        .haystack = "axyzc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 5 },
-        },
+        .input = .{ .haystack = "axyzc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 5 }},
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic114",
+    });
+}
+
+test "fowler/basic/basic114" {
+    try executeCase(.{
+        .name = "fowler/basic/basic114",
         .pattern = "a[bc]d",
-        .haystack = "abd",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "abd", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic115",
+    });
+}
+
+test "fowler/basic/basic115" {
+    try executeCase(.{
+        .name = "fowler/basic/basic115",
         .pattern = "a[b-d]e",
-        .haystack = "ace",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "ace", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .class_simple = true, .class_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic116",
+    });
+}
+
+test "fowler/basic/basic116" {
+    try executeCase(.{
+        .name = "fowler/basic/basic116",
         .pattern = "a[b-d]",
-        .haystack = "aac",
-        .expected = &[_]?Match{
-            .{ .start = 1, .end = 3 },
-        },
+        .input = .{ .haystack = "aac", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 1, .end = 3 }},
         .requires = caps.requires(.{ .class_simple = true, .class_range = true }),
-    },
-    .{
-        .name = "basic117",
+    });
+}
+
+test "fowler/basic/basic117" {
+    try executeCase(.{
+        .name = "fowler/basic/basic117",
         .pattern = "a[-b]",
-        .haystack = "a-",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 2 },
-        },
+        .input = .{ .haystack = "a-", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 2 }},
         .requires = caps.requires(.{ .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic118",
+    });
+}
+
+test "fowler/basic/basic118" {
+    try executeCase(.{
+        .name = "fowler/basic/basic118",
         .pattern = "a[b-]",
-        .haystack = "a-",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 2 },
-        },
+        .input = .{ .haystack = "a-", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 2 }},
         .requires = caps.requires(.{ .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic119",
+    });
+}
+
+test "fowler/basic/basic119" {
+    try executeCase(.{
+        .name = "fowler/basic/basic119",
         .pattern = "a]",
-        .haystack = "a]",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 2 },
-        },
+        .input = .{ .haystack = "a]", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 2 }},
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic120",
+    });
+}
+
+test "fowler/basic/basic120" {
+    try executeCase(.{
+        .name = "fowler/basic/basic120",
         .pattern = "a[]]b",
-        .haystack = "a]b",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "a]b", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic121",
+    });
+}
+
+test "fowler/basic/basic121" {
+    try executeCase(.{
+        .name = "fowler/basic/basic121",
         .pattern = "a[^bc]d",
-        .haystack = "aed",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "aed", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .class_simple = true, .class_negated = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic122",
+    });
+}
+
+test "fowler/basic/basic122" {
+    try executeCase(.{
+        .name = "fowler/basic/basic122",
         .pattern = "a[^-b]c",
-        .haystack = "adc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "adc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .class_simple = true, .class_negated = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic123",
+    });
+}
+
+test "fowler/basic/basic123" {
+    try executeCase(.{
+        .name = "fowler/basic/basic123",
         .pattern = "a[^]b]c",
-        .haystack = "adc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "adc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .class_simple = true, .class_negated = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic124",
+    });
+}
+
+test "fowler/basic/basic124" {
+    try executeCase(.{
+        .name = "fowler/basic/basic124",
         .pattern = "ab|cd",
-        .haystack = "abc",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 2 },
-        },
+        .input = .{ .haystack = "abc", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 2 }},
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic125",
+    });
+}
+
+test "fowler/basic/basic125" {
+    try executeCase(.{
+        .name = "fowler/basic/basic125",
         .pattern = "ab|cd",
-        .haystack = "abcd",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 2 },
-        },
+        .input = .{ .haystack = "abcd", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 2 }},
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic126",
+    });
+}
+
+test "fowler/basic/basic126" {
+    try executeCase(.{
+        .name = "fowler/basic/basic126",
         .pattern = "a\\(b",
-        .haystack = "a(b",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "a(b", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic127",
+    });
+}
+
+test "fowler/basic/basic127" {
+    try executeCase(.{
+        .name = "fowler/basic/basic127",
         .pattern = "a\\(*b",
-        .haystack = "ab",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 2 },
-        },
+        .input = .{ .haystack = "ab", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 2 }},
         .requires = caps.requires(.{ .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic128",
+    });
+}
+
+test "fowler/basic/basic128" {
+    try executeCase(.{
+        .name = "fowler/basic/basic128",
         .pattern = "a\\(*b",
-        .haystack = "a((b",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 4 },
-        },
+        .input = .{ .haystack = "a((b", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 4 }},
         .requires = caps.requires(.{ .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic129",
+    });
+}
+
+test "fowler/basic/basic129" {
+    try executeCase(.{
+        .name = "fowler/basic/basic129",
         .pattern = "((a))",
-        .haystack = "abc",
+        .input = .{ .haystack = "abc", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic130",
+    });
+}
+
+test "fowler/basic/basic130" {
+    try executeCase(.{
+        .name = "fowler/basic/basic130",
         .pattern = "(a)b(c)",
-        .haystack = "abc",
+        .input = .{ .haystack = "abc", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 3 },
             .{ .start = 0, .end = 1 },
             .{ .start = 2, .end = 3 },
         },
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic131",
+    });
+}
+
+test "fowler/basic/basic131" {
+    try executeCase(.{
+        .name = "fowler/basic/basic131",
         .pattern = "a+b+c",
-        .haystack = "aabbabc",
-        .expected = &[_]?Match{
-            .{ .start = 4, .end = 7 },
-        },
+        .input = .{ .haystack = "aabbabc", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 4, .end = 7 }},
         .requires = caps.requires(.{ .rep_one_or_more = true }),
-    },
-    .{
-        .name = "basic132",
+    });
+}
+
+test "fowler/basic/basic132" {
+    try executeCase(.{
+        .name = "fowler/basic/basic132",
         .pattern = "a*",
-        .haystack = "aaa",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "aaa", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic133",
+    });
+}
+
+test "fowler/basic/basic133" {
+    try executeCase(.{
+        .name = "fowler/basic/basic133",
         .pattern = "(a*)*",
-        .haystack = "-",
+        .input = .{ .haystack = "-", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 0 },
             .{ .start = 0, .end = 0 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic134",
+    });
+}
+
+test "fowler/basic/basic134" {
+    try executeCase(.{
+        .name = "fowler/basic/basic134",
         .pattern = "(a*)+",
-        .haystack = "-",
+        .input = .{ .haystack = "-", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 0 },
             .{ .start = 0, .end = 0 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic135",
+    });
+}
+
+test "fowler/basic/basic135" {
+    try executeCase(.{
+        .name = "fowler/basic/basic135",
         .pattern = "(a*|b)*",
-        .haystack = "-",
+        .input = .{ .haystack = "-", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 0 },
             .{ .start = 0, .end = 0 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic136",
+    });
+}
+
+test "fowler/basic/basic136" {
+    try executeCase(.{
+        .name = "fowler/basic/basic136",
         .pattern = "(a+|b)*",
-        .haystack = "ab",
+        .input = .{ .haystack = "ab", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 1, .end = 2 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic137",
+    });
+}
+
+test "fowler/basic/basic137" {
+    try executeCase(.{
+        .name = "fowler/basic/basic137",
         .pattern = "(a+|b)+",
-        .haystack = "ab",
+        .input = .{ .haystack = "ab", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 1, .end = 2 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic138",
+    });
+}
+
+test "fowler/basic/basic138" {
+    try executeCase(.{
+        .name = "fowler/basic/basic138",
         .pattern = "(a+|b)?",
-        .haystack = "ab",
+        .input = .{ .haystack = "ab", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_one = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic139",
+    });
+}
+
+test "fowler/basic/basic139" {
+    try executeCase(.{
+        .name = "fowler/basic/basic139",
         .pattern = "[^ab]*",
-        .haystack = "cde",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "cde", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .class_negated = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic140",
+    });
+}
+
+test "fowler/basic/basic140" {
+    try executeCase(.{
+        .name = "fowler/basic/basic140",
         .pattern = "(^)*",
-        .haystack = "-",
+        .input = .{ .haystack = "-", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 0 },
             .{ .start = 0, .end = 0 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .anchor_line_start = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic141",
+    });
+}
+
+test "fowler/basic/basic141" {
+    try executeCase(.{
+        .name = "fowler/basic/basic141",
         .pattern = "a*",
-        .haystack = "",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 0 },
-        },
+        .input = .{ .haystack = "", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 0 }},
         .requires = caps.requires(.{ .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic142",
+    });
+}
+
+test "fowler/basic/basic142" {
+    try executeCase(.{
+        .name = "fowler/basic/basic142",
         .pattern = "([abc])*d",
-        .haystack = "abbbcd",
+        .input = .{ .haystack = "abbbcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 4, .end = 5 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic143",
+    });
+}
+
+test "fowler/basic/basic143" {
+    try executeCase(.{
+        .name = "fowler/basic/basic143",
         .pattern = "([abc])*bcd",
-        .haystack = "abcd",
+        .input = .{ .haystack = "abcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic144",
+    });
+}
+
+test "fowler/basic/basic144" {
+    try executeCase(.{
+        .name = "fowler/basic/basic144",
         .pattern = "a|b|c|d|e",
-        .haystack = "e",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 1 },
-        },
+        .input = .{ .haystack = "e", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 1 }},
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic145",
+    });
+}
+
+test "fowler/basic/basic145" {
+    try executeCase(.{
+        .name = "fowler/basic/basic145",
         .pattern = "(a|b|c|d|e)f",
-        .haystack = "ef",
+        .input = .{ .haystack = "ef", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic146",
+    });
+}
+
+test "fowler/basic/basic146" {
+    try executeCase(.{
+        .name = "fowler/basic/basic146",
         .pattern = "((a*|b))*",
-        .haystack = "-",
+        .input = .{ .haystack = "-", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 0 },
             .{ .start = 0, .end = 0 },
             .{ .start = 0, .end = 0 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic147",
+    });
+}
+
+test "fowler/basic/basic147" {
+    try executeCase(.{
+        .name = "fowler/basic/basic147",
         .pattern = "abcd*efg",
-        .haystack = "abcdefg",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 7 },
-        },
+        .input = .{ .haystack = "abcdefg", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 7 }},
         .requires = caps.requires(.{ .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic148",
+    });
+}
+
+test "fowler/basic/basic148" {
+    try executeCase(.{
+        .name = "fowler/basic/basic148",
         .pattern = "ab*",
-        .haystack = "xabyabbbz",
-        .expected = &[_]?Match{
-            .{ .start = 1, .end = 3 },
-        },
+        .input = .{ .haystack = "xabyabbbz", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 1, .end = 3 }},
         .requires = caps.requires(.{ .rep_zero_or_more = true }),
-    },
-    .{
-        .name = "basic149",
+    });
+}
+
+test "fowler/basic/basic149" {
+    try executeCase(.{
+        .name = "fowler/basic/basic149",
         .pattern = "ab*",
-        .haystack = "xayabbbz",
-        .expected = &[_]?Match{
-            .{ .start = 1, .end = 2 },
-        },
+        .input = .{ .haystack = "xayabbbz", .anchored = false },
+        .expected = &[_]?Match{.{ .start = 1, .end = 2 }},
         .requires = caps.requires(.{ .rep_zero_or_more = true }),
-    },
-    .{
-        .name = "basic150",
+    });
+}
+
+test "fowler/basic/basic150" {
+    try executeCase(.{
+        .name = "fowler/basic/basic150",
         .pattern = "(ab|cd)e",
-        .haystack = "abcde",
+        .input = .{ .haystack = "abcde", .anchored = false },
         .expected = &[_]?Match{
             .{ .start = 2, .end = 5 },
             .{ .start = 2, .end = 4 },
         },
         .requires = caps.requires(.{ .alternation = true }),
-    },
-    .{
-        .name = "basic151",
+    });
+}
+
+test "fowler/basic/basic151" {
+    try executeCase(.{
+        .name = "fowler/basic/basic151",
         .pattern = "[abhgefdc]ij",
-        .haystack = "hij",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "hij", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic152",
+    });
+}
+
+test "fowler/basic/basic152" {
+    try executeCase(.{
+        .name = "fowler/basic/basic152",
         .pattern = "(a|b)c*d",
-        .haystack = "abcd",
+        .input = .{ .haystack = "abcd", .anchored = false },
         .expected = &[_]?Match{
             .{ .start = 1, .end = 4 },
             .{ .start = 1, .end = 2 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true }),
-    },
-    .{
-        .name = "basic153",
+    });
+}
+
+test "fowler/basic/basic153" {
+    try executeCase(.{
+        .name = "fowler/basic/basic153",
         .pattern = "(ab|ab*)bc",
-        .haystack = "abc",
+        .input = .{ .haystack = "abc", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 3 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic154",
+    });
+}
+
+test "fowler/basic/basic154" {
+    try executeCase(.{
+        .name = "fowler/basic/basic154",
         .pattern = "a([bc]*)c*",
-        .haystack = "abc",
+        .input = .{ .haystack = "abc", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 3 },
             .{ .start = 1, .end = 3 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic155",
+    });
+}
+
+test "fowler/basic/basic155" {
+    try executeCase(.{
+        .name = "fowler/basic/basic155",
         .pattern = "a([bc]*)(c*d)",
-        .haystack = "abcd",
+        .input = .{ .haystack = "abcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 1, .end = 3 },
             .{ .start = 3, .end = 4 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic156",
+    });
+}
+
+test "fowler/basic/basic156" {
+    try executeCase(.{
+        .name = "fowler/basic/basic156",
         .pattern = "a([bc]+)(c*d)",
-        .haystack = "abcd",
+        .input = .{ .haystack = "abcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 1, .end = 3 },
             .{ .start = 3, .end = 4 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic157",
+    });
+}
+
+test "fowler/basic/basic157" {
+    try executeCase(.{
+        .name = "fowler/basic/basic157",
         .pattern = "a([bc]*)(c+d)",
-        .haystack = "abcd",
+        .input = .{ .haystack = "abcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 1, .end = 2 },
             .{ .start = 2, .end = 4 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic158",
+    });
+}
+
+test "fowler/basic/basic158" {
+    try executeCase(.{
+        .name = "fowler/basic/basic158",
         .pattern = "a[bcd]*dcdcde",
-        .haystack = "adcdcde",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 7 },
-        },
+        .input = .{ .haystack = "adcdcde", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 7 }},
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic159",
+    });
+}
+
+test "fowler/basic/basic159" {
+    try executeCase(.{
+        .name = "fowler/basic/basic159",
         .pattern = "(ab|a)b*c",
-        .haystack = "abc",
+        .input = .{ .haystack = "abc", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 3 },
             .{ .start = 0, .end = 2 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic160",
+    });
+}
+
+test "fowler/basic/basic160" {
+    try executeCase(.{
+        .name = "fowler/basic/basic160",
         .pattern = "((a)(b)c)(d)",
-        .haystack = "abcd",
+        .input = .{ .haystack = "abcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 0, .end = 3 },
@@ -1351,63 +1598,79 @@ pub const cases = [_]runner.Case{
             .{ .start = 3, .end = 4 },
         },
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic161",
+    });
+}
+
+test "fowler/basic/basic161" {
+    try executeCase(.{
+        .name = "fowler/basic/basic161",
         .pattern = "[A-Za-z_][A-Za-z0-9_]*",
-        .haystack = "alpha",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 5 },
-        },
+        .input = .{ .haystack = "alpha", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 5 }},
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .class_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic162",
+    });
+}
+
+test "fowler/basic/basic162" {
+    try executeCase(.{
+        .name = "fowler/basic/basic162",
         .pattern = "^a(bc+|b[eh])g|.h$",
-        .haystack = "abh",
+        .input = .{ .haystack = "abh", .anchored = false },
         .expected = &[_]?Match{
             .{ .start = 1, .end = 3 },
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_one_or_more = true, .class_simple = true, .anchor_line_start = true, .anchor_line_end = true }),
-    },
-    .{
-        .name = "basic163",
+    });
+}
+
+test "fowler/basic/basic163" {
+    try executeCase(.{
+        .name = "fowler/basic/basic163",
         .pattern = "(bc+d$|ef*g.|h?i(j|k))",
-        .haystack = "effgz",
+        .input = .{ .haystack = "effgz", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 5 },
             .{ .start = 0, .end = 5 },
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic164",
+    });
+}
+
+test "fowler/basic/basic164" {
+    try executeCase(.{
+        .name = "fowler/basic/basic164",
         .pattern = "(bc+d$|ef*g.|h?i(j|k))",
-        .haystack = "ij",
+        .input = .{ .haystack = "ij", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 2 },
             .{ .start = 1, .end = 2 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic165",
+    });
+}
+
+test "fowler/basic/basic165" {
+    try executeCase(.{
+        .name = "fowler/basic/basic165",
         .pattern = "(bc+d$|ef*g.|h?i(j|k))",
-        .haystack = "reffgz",
+        .input = .{ .haystack = "reffgz", .anchored = false },
         .expected = &[_]?Match{
             .{ .start = 1, .end = 6 },
             .{ .start = 1, .end = 6 },
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .anchor_line_end = true }),
-    },
-    .{
-        .name = "basic166",
+    });
+}
+
+test "fowler/basic/basic166" {
+    try executeCase(.{
+        .name = "fowler/basic/basic166",
         .pattern = "(((((((((a)))))))))",
-        .haystack = "a",
+        .input = .{ .haystack = "a", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
@@ -1421,330 +1684,415 @@ pub const cases = [_]runner.Case{
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic167",
+    });
+}
+
+test "fowler/basic/basic167" {
+    try executeCase(.{
+        .name = "fowler/basic/basic167",
         .pattern = "multiple words",
-        .haystack = "multiple words yeah",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 14 },
-        },
+        .input = .{ .haystack = "multiple words yeah", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 14 }},
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic168",
+    });
+}
+
+test "fowler/basic/basic168" {
+    try executeCase(.{
+        .name = "fowler/basic/basic168",
         .pattern = "(.*)c(.*)",
-        .haystack = "abcde",
+        .input = .{ .haystack = "abcde", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 5 },
             .{ .start = 0, .end = 2 },
             .{ .start = 3, .end = 5 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic169",
+    });
+}
+
+test "fowler/basic/basic169" {
+    try executeCase(.{
+        .name = "fowler/basic/basic169",
         .pattern = "abcd",
-        .haystack = "abcd",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 4 },
-        },
+        .input = .{ .haystack = "abcd", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 4 }},
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic170",
+    });
+}
+
+test "fowler/basic/basic170" {
+    try executeCase(.{
+        .name = "fowler/basic/basic170",
         .pattern = "a(bc)d",
-        .haystack = "abcd",
+        .input = .{ .haystack = "abcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 1, .end = 3 },
         },
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic171",
+    });
+}
+
+test "fowler/basic/basic171" {
+    try executeCase(.{
+        .name = "fowler/basic/basic171",
         .pattern = "a[\\x01-\\x03]?c",
-        .haystack = "a\\x02c",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-        },
+        .input = .{ .haystack = "a\\x02c", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 3 }},
         .requires = caps.requires(.{ .rep_zero_or_one = true, .class_simple = true, .class_range = true, .escape_hex_byte = true, .case_unescape = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic172",
+    });
+}
+
+test "fowler/basic/basic172" {
+    try executeCase(.{
+        .name = "fowler/basic/basic172",
         .pattern = "M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]",
-        .haystack = "Muammar Qaddafi",
+        .input = .{ .haystack = "Muammar Qaddafi", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 15 },
             null,
             .{ .start = 10, .end = 12 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic173",
+    });
+}
+
+test "fowler/basic/basic173" {
+    try executeCase(.{
+        .name = "fowler/basic/basic173",
         .pattern = "M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]",
-        .haystack = "Mo'ammar Gadhafi",
+        .input = .{ .haystack = "Mo'ammar Gadhafi", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 16 },
             null,
             .{ .start = 11, .end = 13 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic174",
+    });
+}
+
+test "fowler/basic/basic174" {
+    try executeCase(.{
+        .name = "fowler/basic/basic174",
         .pattern = "M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]",
-        .haystack = "Muammar Kaddafi",
+        .input = .{ .haystack = "Muammar Kaddafi", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 15 },
             null,
             .{ .start = 10, .end = 12 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic175",
+    });
+}
+
+test "fowler/basic/basic175" {
+    try executeCase(.{
+        .name = "fowler/basic/basic175",
         .pattern = "M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]",
-        .haystack = "Muammar Qadhafi",
+        .input = .{ .haystack = "Muammar Qadhafi", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 15 },
             null,
             .{ .start = 10, .end = 12 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic176",
+    });
+}
+
+test "fowler/basic/basic176" {
+    try executeCase(.{
+        .name = "fowler/basic/basic176",
         .pattern = "M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]",
-        .haystack = "Muammar Gadafi",
+        .input = .{ .haystack = "Muammar Gadafi", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 14 },
             null,
             .{ .start = 10, .end = 11 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic177",
+    });
+}
+
+test "fowler/basic/basic177" {
+    try executeCase(.{
+        .name = "fowler/basic/basic177",
         .pattern = "M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]",
-        .haystack = "Mu'ammar Qadafi",
+        .input = .{ .haystack = "Mu'ammar Qadafi", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 15 },
             null,
             .{ .start = 11, .end = 12 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic178",
+    });
+}
+
+test "fowler/basic/basic178" {
+    try executeCase(.{
+        .name = "fowler/basic/basic178",
         .pattern = "M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]",
-        .haystack = "Moamar Gaddafi",
+        .input = .{ .haystack = "Moamar Gaddafi", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 14 },
             null,
             .{ .start = 9, .end = 11 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic179",
+    });
+}
+
+test "fowler/basic/basic179" {
+    try executeCase(.{
+        .name = "fowler/basic/basic179",
         .pattern = "M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]",
-        .haystack = "Mu'ammar Qadhdhafi",
+        .input = .{ .haystack = "Mu'ammar Qadhdhafi", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 18 },
             null,
             .{ .start = 13, .end = 15 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic180",
+    });
+}
+
+test "fowler/basic/basic180" {
+    try executeCase(.{
+        .name = "fowler/basic/basic180",
         .pattern = "M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]",
-        .haystack = "Muammar Khaddafi",
+        .input = .{ .haystack = "Muammar Khaddafi", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 16 },
             null,
             .{ .start = 11, .end = 13 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic181",
+    });
+}
+
+test "fowler/basic/basic181" {
+    try executeCase(.{
+        .name = "fowler/basic/basic181",
         .pattern = "M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]",
-        .haystack = "Muammar Ghaddafy",
+        .input = .{ .haystack = "Muammar Ghaddafy", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 16 },
             null,
             .{ .start = 11, .end = 13 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic182",
+    });
+}
+
+test "fowler/basic/basic182" {
+    try executeCase(.{
+        .name = "fowler/basic/basic182",
         .pattern = "M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]",
-        .haystack = "Muammar Ghadafi",
+        .input = .{ .haystack = "Muammar Ghadafi", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 15 },
             null,
             .{ .start = 11, .end = 12 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic183",
+    });
+}
+
+test "fowler/basic/basic183" {
+    try executeCase(.{
+        .name = "fowler/basic/basic183",
         .pattern = "M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]",
-        .haystack = "Muammar Ghaddafi",
+        .input = .{ .haystack = "Muammar Ghaddafi", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 16 },
             null,
             .{ .start = 11, .end = 13 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic184",
+    });
+}
+
+test "fowler/basic/basic184" {
+    try executeCase(.{
+        .name = "fowler/basic/basic184",
         .pattern = "M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]",
-        .haystack = "Muamar Kaddafi",
+        .input = .{ .haystack = "Muamar Kaddafi", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 14 },
             null,
             .{ .start = 9, .end = 11 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic185",
+    });
+}
+
+test "fowler/basic/basic185" {
+    try executeCase(.{
+        .name = "fowler/basic/basic185",
         .pattern = "M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]",
-        .haystack = "Muammar Quathafi",
+        .input = .{ .haystack = "Muammar Quathafi", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 16 },
             null,
             .{ .start = 11, .end = 13 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic186",
+    });
+}
+
+test "fowler/basic/basic186" {
+    try executeCase(.{
+        .name = "fowler/basic/basic186",
         .pattern = "M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]",
-        .haystack = "Muammar Gheddafi",
+        .input = .{ .haystack = "Muammar Gheddafi", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 16 },
             null,
             .{ .start = 11, .end = 13 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic187",
+    });
+}
+
+test "fowler/basic/basic187" {
+    try executeCase(.{
+        .name = "fowler/basic/basic187",
         .pattern = "M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]",
-        .haystack = "Moammar Khadafy",
+        .input = .{ .haystack = "Moammar Khadafy", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 15 },
             null,
             .{ .start = 11, .end = 12 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic188",
+    });
+}
+
+test "fowler/basic/basic188" {
+    try executeCase(.{
+        .name = "fowler/basic/basic188",
         .pattern = "M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]",
-        .haystack = "Moammar Qudhafi",
+        .input = .{ .haystack = "Moammar Qudhafi", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 15 },
             null,
             .{ .start = 10, .end = 12 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic189",
+    });
+}
+
+test "fowler/basic/basic189" {
+    try executeCase(.{
+        .name = "fowler/basic/basic189",
         .pattern = "a+(b|c)*d+",
-        .haystack = "aabcdd",
+        .input = .{ .haystack = "aabcdd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 3, .end = 4 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic190",
+    });
+}
+
+test "fowler/basic/basic190" {
+    try executeCase(.{
+        .name = "fowler/basic/basic190",
         .pattern = "^.+$",
-        .haystack = "vivi",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 4 },
-        },
+        .input = .{ .haystack = "vivi", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 4 }},
         .requires = caps.requires(.{ .dot = true, .rep_one_or_more = true, .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic191",
+    });
+}
+
+test "fowler/basic/basic191" {
+    try executeCase(.{
+        .name = "fowler/basic/basic191",
         .pattern = "^(.+)$",
-        .haystack = "vivi",
+        .input = .{ .haystack = "vivi", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 0, .end = 4 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_one_or_more = true, .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic192",
+    });
+}
+
+test "fowler/basic/basic192" {
+    try executeCase(.{
+        .name = "fowler/basic/basic192",
         .pattern = "^([^!.]+).att.com!(.+)$",
-        .haystack = "gryphon.att.com!eby",
+        .input = .{ .haystack = "gryphon.att.com!eby", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 19 },
             .{ .start = 0, .end = 7 },
             .{ .start = 16, .end = 19 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_one_or_more = true, .class_simple = true, .class_negated = true, .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic193",
+    });
+}
+
+test "fowler/basic/basic193" {
+    try executeCase(.{
+        .name = "fowler/basic/basic193",
         .pattern = "^([^!]+!)?([^!]+)$",
-        .haystack = "bas",
+        .input = .{ .haystack = "bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 3 },
             null,
             .{ .start = 0, .end = 3 },
         },
         .requires = caps.requires(.{ .rep_zero_or_one = true, .rep_one_or_more = true, .class_simple = true, .class_negated = true, .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic194",
+    });
+}
+
+test "fowler/basic/basic194" {
+    try executeCase(.{
+        .name = "fowler/basic/basic194",
         .pattern = "^([^!]+!)?([^!]+)$",
-        .haystack = "bar!bas",
+        .input = .{ .haystack = "bar!bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 7 },
             .{ .start = 0, .end = 4 },
             .{ .start = 4, .end = 7 },
         },
         .requires = caps.requires(.{ .rep_zero_or_one = true, .rep_one_or_more = true, .class_simple = true, .class_negated = true, .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic195",
+    });
+}
+
+test "fowler/basic/basic195" {
+    try executeCase(.{
+        .name = "fowler/basic/basic195",
         .pattern = "^([^!]+!)?([^!]+)$",
-        .haystack = "foo!bas",
+        .input = .{ .haystack = "foo!bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 7 },
             .{ .start = 0, .end = 4 },
             .{ .start = 4, .end = 7 },
         },
         .requires = caps.requires(.{ .rep_zero_or_one = true, .rep_one_or_more = true, .class_simple = true, .class_negated = true, .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic196",
+    });
+}
+
+test "fowler/basic/basic196" {
+    try executeCase(.{
+        .name = "fowler/basic/basic196",
         .pattern = "^.+!([^!]+!)([^!]+)$",
-        .haystack = "foo!bar!bas",
+        .input = .{ .haystack = "foo!bar!bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 11 },
             .{ .start = 4, .end = 8 },
             .{ .start = 8, .end = 11 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_one_or_more = true, .class_simple = true, .class_negated = true, .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic197",
+    });
+}
+
+test "fowler/basic/basic197" {
+    try executeCase(.{
+        .name = "fowler/basic/basic197",
         .pattern = "((foo)|(bar))!bas",
-        .haystack = "bar!bas",
+        .input = .{ .haystack = "bar!bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 7 },
             .{ .start = 0, .end = 3 },
@@ -1752,11 +2100,14 @@ pub const cases = [_]runner.Case{
             .{ .start = 0, .end = 3 },
         },
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic198",
+    });
+}
+
+test "fowler/basic/basic198" {
+    try executeCase(.{
+        .name = "fowler/basic/basic198",
         .pattern = "((foo)|(bar))!bas",
-        .haystack = "foo!bar!bas",
+        .input = .{ .haystack = "foo!bar!bas", .anchored = false },
         .expected = &[_]?Match{
             .{ .start = 4, .end = 11 },
             .{ .start = 4, .end = 7 },
@@ -1764,11 +2115,14 @@ pub const cases = [_]runner.Case{
             .{ .start = 4, .end = 7 },
         },
         .requires = caps.requires(.{ .alternation = true }),
-    },
-    .{
-        .name = "basic199",
+    });
+}
+
+test "fowler/basic/basic199" {
+    try executeCase(.{
+        .name = "fowler/basic/basic199",
         .pattern = "((foo)|(bar))!bas",
-        .haystack = "foo!bas",
+        .input = .{ .haystack = "foo!bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 7 },
             .{ .start = 0, .end = 3 },
@@ -1776,107 +2130,137 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic200",
+    });
+}
+
+test "fowler/basic/basic200" {
+    try executeCase(.{
+        .name = "fowler/basic/basic200",
         .pattern = "((foo)|bar)!bas",
-        .haystack = "bar!bas",
+        .input = .{ .haystack = "bar!bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 7 },
             .{ .start = 0, .end = 3 },
             null,
         },
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic201",
+    });
+}
+
+test "fowler/basic/basic201" {
+    try executeCase(.{
+        .name = "fowler/basic/basic201",
         .pattern = "((foo)|bar)!bas",
-        .haystack = "foo!bar!bas",
+        .input = .{ .haystack = "foo!bar!bas", .anchored = false },
         .expected = &[_]?Match{
             .{ .start = 4, .end = 11 },
             .{ .start = 4, .end = 7 },
             null,
         },
         .requires = caps.requires(.{ .alternation = true }),
-    },
-    .{
-        .name = "basic202",
+    });
+}
+
+test "fowler/basic/basic202" {
+    try executeCase(.{
+        .name = "fowler/basic/basic202",
         .pattern = "((foo)|bar)!bas",
-        .haystack = "foo!bas",
+        .input = .{ .haystack = "foo!bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 7 },
             .{ .start = 0, .end = 3 },
             .{ .start = 0, .end = 3 },
         },
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic203",
+    });
+}
+
+test "fowler/basic/basic203" {
+    try executeCase(.{
+        .name = "fowler/basic/basic203",
         .pattern = "(foo|(bar))!bas",
-        .haystack = "bar!bas",
+        .input = .{ .haystack = "bar!bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 7 },
             .{ .start = 0, .end = 3 },
             .{ .start = 0, .end = 3 },
         },
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic204",
+    });
+}
+
+test "fowler/basic/basic204" {
+    try executeCase(.{
+        .name = "fowler/basic/basic204",
         .pattern = "(foo|(bar))!bas",
-        .haystack = "foo!bar!bas",
+        .input = .{ .haystack = "foo!bar!bas", .anchored = false },
         .expected = &[_]?Match{
             .{ .start = 4, .end = 11 },
             .{ .start = 4, .end = 7 },
             .{ .start = 4, .end = 7 },
         },
         .requires = caps.requires(.{ .alternation = true }),
-    },
-    .{
-        .name = "basic205",
+    });
+}
+
+test "fowler/basic/basic205" {
+    try executeCase(.{
+        .name = "fowler/basic/basic205",
         .pattern = "(foo|(bar))!bas",
-        .haystack = "foo!bas",
+        .input = .{ .haystack = "foo!bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 7 },
             .{ .start = 0, .end = 3 },
             null,
         },
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic206",
+    });
+}
+
+test "fowler/basic/basic206" {
+    try executeCase(.{
+        .name = "fowler/basic/basic206",
         .pattern = "(foo|bar)!bas",
-        .haystack = "bar!bas",
+        .input = .{ .haystack = "bar!bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 7 },
             .{ .start = 0, .end = 3 },
         },
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic207",
+    });
+}
+
+test "fowler/basic/basic207" {
+    try executeCase(.{
+        .name = "fowler/basic/basic207",
         .pattern = "(foo|bar)!bas",
-        .haystack = "foo!bar!bas",
+        .input = .{ .haystack = "foo!bar!bas", .anchored = false },
         .expected = &[_]?Match{
             .{ .start = 4, .end = 11 },
             .{ .start = 4, .end = 7 },
         },
         .requires = caps.requires(.{ .alternation = true }),
-    },
-    .{
-        .name = "basic208",
+    });
+}
+
+test "fowler/basic/basic208" {
+    try executeCase(.{
+        .name = "fowler/basic/basic208",
         .pattern = "(foo|bar)!bas",
-        .haystack = "foo!bas",
+        .input = .{ .haystack = "foo!bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 7 },
             .{ .start = 0, .end = 3 },
         },
         .requires = caps.requires(.{ .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic209",
+    });
+}
+
+test "fowler/basic/basic209" {
+    try executeCase(.{
+        .name = "fowler/basic/basic209",
         .pattern = "^(([^!]+!)?([^!]+)|.+!([^!]+!)([^!]+))$",
-        .haystack = "foo!bar!bas",
+        .input = .{ .haystack = "foo!bar!bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 11 },
             .{ .start = 0, .end = 11 },
@@ -1886,11 +2270,14 @@ pub const cases = [_]runner.Case{
             .{ .start = 8, .end = 11 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_one = true, .rep_one_or_more = true, .class_simple = true, .class_negated = true, .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic210",
+    });
+}
+
+test "fowler/basic/basic210" {
+    try executeCase(.{
+        .name = "fowler/basic/basic210",
         .pattern = "^([^!]+!)?([^!]+)$|^.+!([^!]+!)([^!]+)$",
-        .haystack = "bas",
+        .input = .{ .haystack = "bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 3 },
             null,
@@ -1899,11 +2286,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_one = true, .rep_one_or_more = true, .class_simple = true, .class_negated = true, .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic211",
+    });
+}
+
+test "fowler/basic/basic211" {
+    try executeCase(.{
+        .name = "fowler/basic/basic211",
         .pattern = "^([^!]+!)?([^!]+)$|^.+!([^!]+!)([^!]+)$",
-        .haystack = "bar!bas",
+        .input = .{ .haystack = "bar!bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 7 },
             .{ .start = 0, .end = 4 },
@@ -1912,11 +2302,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_one = true, .rep_one_or_more = true, .class_simple = true, .class_negated = true, .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic212",
+    });
+}
+
+test "fowler/basic/basic212" {
+    try executeCase(.{
+        .name = "fowler/basic/basic212",
         .pattern = "^([^!]+!)?([^!]+)$|^.+!([^!]+!)([^!]+)$",
-        .haystack = "foo!bar!bas",
+        .input = .{ .haystack = "foo!bar!bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 11 },
             null,
@@ -1925,11 +2318,14 @@ pub const cases = [_]runner.Case{
             .{ .start = 8, .end = 11 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_one = true, .rep_one_or_more = true, .class_simple = true, .class_negated = true, .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic213",
+    });
+}
+
+test "fowler/basic/basic213" {
+    try executeCase(.{
+        .name = "fowler/basic/basic213",
         .pattern = "^([^!]+!)?([^!]+)$|^.+!([^!]+!)([^!]+)$",
-        .haystack = "foo!bas",
+        .input = .{ .haystack = "foo!bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 7 },
             .{ .start = 0, .end = 4 },
@@ -1938,11 +2334,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_one = true, .rep_one_or_more = true, .class_simple = true, .class_negated = true, .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic214",
+    });
+}
+
+test "fowler/basic/basic214" {
+    try executeCase(.{
+        .name = "fowler/basic/basic214",
         .pattern = "^(([^!]+!)?([^!]+)|.+!([^!]+!)([^!]+))$",
-        .haystack = "bas",
+        .input = .{ .haystack = "bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 3 },
             .{ .start = 0, .end = 3 },
@@ -1952,11 +2351,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_one = true, .rep_one_or_more = true, .class_simple = true, .class_negated = true, .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic215",
+    });
+}
+
+test "fowler/basic/basic215" {
+    try executeCase(.{
+        .name = "fowler/basic/basic215",
         .pattern = "^(([^!]+!)?([^!]+)|.+!([^!]+!)([^!]+))$",
-        .haystack = "bar!bas",
+        .input = .{ .haystack = "bar!bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 7 },
             .{ .start = 0, .end = 7 },
@@ -1966,11 +2368,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_one = true, .rep_one_or_more = true, .class_simple = true, .class_negated = true, .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic216",
+    });
+}
+
+test "fowler/basic/basic216" {
+    try executeCase(.{
+        .name = "fowler/basic/basic216",
         .pattern = "^(([^!]+!)?([^!]+)|.+!([^!]+!)([^!]+))$",
-        .haystack = "foo!bar!bas",
+        .input = .{ .haystack = "foo!bar!bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 11 },
             .{ .start = 0, .end = 11 },
@@ -1980,11 +2385,14 @@ pub const cases = [_]runner.Case{
             .{ .start = 8, .end = 11 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_one = true, .rep_one_or_more = true, .class_simple = true, .class_negated = true, .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic217",
+    });
+}
+
+test "fowler/basic/basic217" {
+    try executeCase(.{
+        .name = "fowler/basic/basic217",
         .pattern = "^(([^!]+!)?([^!]+)|.+!([^!]+!)([^!]+))$",
-        .haystack = "foo!bas",
+        .input = .{ .haystack = "foo!bas", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 7 },
             .{ .start = 0, .end = 7 },
@@ -1994,63 +2402,77 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_one = true, .rep_one_or_more = true, .class_simple = true, .class_negated = true, .anchor_line_start = true, .anchor_line_end = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic218",
+    });
+}
+
+test "fowler/basic/basic218" {
+    try executeCase(.{
+        .name = "fowler/basic/basic218",
         .pattern = ".*(/XXX).*",
-        .haystack = "/XXX",
+        .input = .{ .haystack = "/XXX", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 0, .end = 4 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic219",
+    });
+}
+
+test "fowler/basic/basic219" {
+    try executeCase(.{
+        .name = "fowler/basic/basic219",
         .pattern = ".*(\\\\XXX).*",
-        .haystack = "\\XXX",
+        .input = .{ .haystack = "\\XXX", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 0, .end = 4 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic220",
+    });
+}
+
+test "fowler/basic/basic220" {
+    try executeCase(.{
+        .name = "fowler/basic/basic220",
         .pattern = "\\\\XXX",
-        .haystack = "\\XXX",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 4 },
-        },
+        .input = .{ .haystack = "\\XXX", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 4 }},
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-    .{
-        .name = "basic221",
+    });
+}
+
+test "fowler/basic/basic221" {
+    try executeCase(.{
+        .name = "fowler/basic/basic221",
         .pattern = ".*(/000).*",
-        .haystack = "/000",
+        .input = .{ .haystack = "/000", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 0, .end = 4 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic222",
+    });
+}
+
+test "fowler/basic/basic222" {
+    try executeCase(.{
+        .name = "fowler/basic/basic222",
         .pattern = ".*(\\\\000).*",
-        .haystack = "\\000",
+        .input = .{ .haystack = "\\000", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 0, .end = 4 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "basic223",
+    });
+}
+
+test "fowler/basic/basic223" {
+    try executeCase(.{
+        .name = "fowler/basic/basic223",
         .pattern = "\\\\000",
-        .haystack = "\\000",
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 4 },
-        },
+        .input = .{ .haystack = "\\000", .anchored = true },
+        .expected = &[_]?Match{.{ .start = 0, .end = 4 }},
         .requires = caps.requires(.{ .input_anchored = true }),
-    },
-};
+    });
+}

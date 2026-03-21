@@ -43,23 +43,23 @@ pub fn deinit(vm: *Vm) void {
     vm.arena.deinit();
 }
 
-pub fn match(vm: *Vm, haystack: []const u8) bool {
-    return vm.search(.none, .init(haystack)) != null;
+pub fn match(vm: *Vm, input: Input) bool {
+    return vm.search(.none, input) != null;
 }
 
-pub fn find(vm: *Vm, haystack: []const u8) ?Match {
-    const slots = vm.search(.bounds, .init(haystack)) orelse return null;
+pub fn find(vm: *Vm, input: Input) ?Match {
+    const slots = vm.search(.bounds, input) orelse return null;
     return buildMatch(slots);
 }
 
-pub fn findCaptures(vm: *Vm, haystack: []const u8, buffer: []?Match) ?Captures {
-    const slots = vm.search(.full, .init(haystack)) orelse return null;
+pub fn findCaptures(vm: *Vm, input: Input, buffer: []?Match) ?Captures {
+    const slots = vm.search(.full, input) orelse return null;
     return vm.buildCaptures(slots, buffer);
 }
 
-pub fn findCapturesAlloc(vm: *Vm, gpa: Allocator, haystack: []const u8) !?Captures {
+pub fn findCapturesAlloc(vm: *Vm, gpa: Allocator, input: Input) !?Captures {
     const buffer = try gpa.alloc(?Match, vm.capturesLen());
-    if (vm.findCaptures(haystack, buffer)) |captures| {
+    if (vm.findCaptures(input, buffer)) |captures| {
         return captures;
     }
     gpa.free(buffer);

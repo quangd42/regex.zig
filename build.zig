@@ -65,29 +65,65 @@ pub fn build(b: *std.Build) void {
     check.dependOn(&regex_lib_check.step);
     check.dependOn(&demo_exe.step);
 
+    // Export Regex internal for integration tests
+    const export_test_mod = b.createModule(.{
+        .root_source_file = b.path("src/export_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     // Unit tests rooted at `src/Regex.zig`.
     const unit_tests = b.addTest(.{
         .root_module = regex_mod,
     });
     const run_unit_tests = b.addRunArtifact(unit_tests);
 
-    // Integration/corpus suites rooted at `tests/tests.zig`.
-    const suite_tests_mod = b.createModule(.{
-        .root_source_file = b.path("tests/tests.zig"),
-        .target = target,
-        .optimize = optimize,
+    const api_tests = b.addTest(.{
+        .name = "api-tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/api_integration.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
-    suite_tests_mod.addImport("export_test", b.createModule(.{
-        .root_source_file = b.path("src/export_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    }));
+    api_tests.root_module.addImport("export_test", export_test_mod);
+    const run_api_tests = b.addRunArtifact(api_tests);
+
+    // Suite tests rooted at `tests/suite.zig`.
     const suite_tests = b.addTest(.{
-        .root_module = suite_tests_mod,
+        .name = "suite-tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/suite.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+        .test_runner = .{
+            .path = b.path("tests/test_runner.zig"),
+            .mode = .simple,
+        },
     });
+    suite_tests.root_module.addImport("export_test", export_test_mod);
     const run_suite_tests = b.addRunArtifact(suite_tests);
+    if (b.args) |args| run_suite_tests.addArgs(args);
+
+    const test_unit_step = b.step("test-unit", "Run unit tests");
+    test_unit_step.dependOn(&run_unit_tests.step);
+    test_unit_step.dependOn(&run_api_tests.step);
+
+    const test_suite_step = b.step("test-suite", "Run suite-backed tests");
+    test_suite_step.dependOn(&run_suite_tests.step);
+
+    const suite_test_bin = b.addInstallArtifact(suite_tests, .{
+        .dest_sub_path = "suite-tests",
+    });
+    const test_bin_step = b.step(
+        "test-bin",
+        "Build the suite test binary for debugger use",
+    );
+    test_bin_step.dependOn(&suite_test_bin.step);
 
     const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_unit_tests.step);
+    test_step.dependOn(&run_api_tests.step);
     test_step.dependOn(&run_suite_tests.step);
 }

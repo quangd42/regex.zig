@@ -2,58 +2,87 @@
 //! Source: tests/fowler/data/repetition.toml
 //! DO NOT EDIT.
 
+const std = @import("std");
+const gpa = std.testing.allocator;
 const harness = @import("../harness.zig");
-const runner = harness.runner;
+const exec = harness.execute;
 const caps = harness.capabilities;
+const root = @import("root");
 const Match = @import("export_test").Regex.Match;
 
-pub const cases = [_]runner.Case{
-    .{
-        .name = "repetition10",
+fn config() exec.Options {
+    return .{ .verbose = root.verbose, .trace = root.trace };
+}
+
+fn executeCase(tc: exec.Case) !void {
+    try exec.execute(gpa, tc, .pikevm, config());
+}
+
+test "fowler/repetition/repetition10" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition10",
         .pattern = "((..)|(.))",
-        .haystack = "",
+        .input = .{ .haystack = "", .anchored = false },
         .expected = &[_]?Match{},
         .requires = caps.requires(.{ .dot = true, .alternation = true }),
-    },
-    .{
-        .name = "repetition11",
+    });
+}
+
+test "fowler/repetition/repetition11" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition11",
         .pattern = "((..)|(.))((..)|(.))",
-        .haystack = "",
+        .input = .{ .haystack = "", .anchored = false },
         .expected = &[_]?Match{},
         .requires = caps.requires(.{ .dot = true, .alternation = true }),
-    },
-    .{
-        .name = "repetition12",
+    });
+}
+
+test "fowler/repetition/repetition12" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition12",
         .pattern = "((..)|(.))((..)|(.))((..)|(.))",
-        .haystack = "",
+        .input = .{ .haystack = "", .anchored = false },
         .expected = &[_]?Match{},
         .requires = caps.requires(.{ .dot = true, .alternation = true }),
-    },
-    .{
-        .name = "repetition14",
+    });
+}
+
+test "fowler/repetition/repetition14" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition14",
         .pattern = "((..)|(.)){1}",
-        .haystack = "",
+        .input = .{ .haystack = "", .anchored = false },
         .expected = &[_]?Match{},
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true }),
-    },
-    .{
-        .name = "repetition15",
+    });
+}
+
+test "fowler/repetition/repetition15" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition15",
         .pattern = "((..)|(.)){2}",
-        .haystack = "",
+        .input = .{ .haystack = "", .anchored = false },
         .expected = &[_]?Match{},
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true }),
-    },
-    .{
-        .name = "repetition16",
+    });
+}
+
+test "fowler/repetition/repetition16" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition16",
         .pattern = "((..)|(.)){3}",
-        .haystack = "",
+        .input = .{ .haystack = "", .anchored = false },
         .expected = &[_]?Match{},
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true }),
-    },
-    .{
-        .name = "repetition18",
+    });
+}
+
+test "fowler/repetition/repetition18" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition18",
         .pattern = "((..)|(.))*",
-        .haystack = "",
+        .input = .{ .haystack = "", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 0 },
             null,
@@ -61,11 +90,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition20",
+    });
+}
+
+test "fowler/repetition/repetition20" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition20",
         .pattern = "((..)|(.))",
-        .haystack = "a",
+        .input = .{ .haystack = "a", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
@@ -73,25 +105,34 @@ pub const cases = [_]runner.Case{
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition21",
+    });
+}
+
+test "fowler/repetition/repetition21" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition21",
         .pattern = "((..)|(.))((..)|(.))",
-        .haystack = "a",
+        .input = .{ .haystack = "a", .anchored = false },
         .expected = &[_]?Match{},
         .requires = caps.requires(.{ .dot = true, .alternation = true }),
-    },
-    .{
-        .name = "repetition22",
+    });
+}
+
+test "fowler/repetition/repetition22" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition22",
         .pattern = "((..)|(.))((..)|(.))((..)|(.))",
-        .haystack = "a",
+        .input = .{ .haystack = "a", .anchored = false },
         .expected = &[_]?Match{},
         .requires = caps.requires(.{ .dot = true, .alternation = true }),
-    },
-    .{
-        .name = "repetition24",
+    });
+}
+
+test "fowler/repetition/repetition24" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition24",
         .pattern = "((..)|(.)){1}",
-        .haystack = "a",
+        .input = .{ .haystack = "a", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
@@ -99,25 +140,34 @@ pub const cases = [_]runner.Case{
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition25",
+    });
+}
+
+test "fowler/repetition/repetition25" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition25",
         .pattern = "((..)|(.)){2}",
-        .haystack = "a",
+        .input = .{ .haystack = "a", .anchored = false },
         .expected = &[_]?Match{},
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true }),
-    },
-    .{
-        .name = "repetition26",
+    });
+}
+
+test "fowler/repetition/repetition26" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition26",
         .pattern = "((..)|(.)){3}",
-        .haystack = "a",
+        .input = .{ .haystack = "a", .anchored = false },
         .expected = &[_]?Match{},
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true }),
-    },
-    .{
-        .name = "repetition28",
+    });
+}
+
+test "fowler/repetition/repetition28" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition28",
         .pattern = "((..)|(.))*",
-        .haystack = "a",
+        .input = .{ .haystack = "a", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
@@ -125,11 +175,14 @@ pub const cases = [_]runner.Case{
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition30",
+    });
+}
+
+test "fowler/repetition/repetition30" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition30",
         .pattern = "((..)|(.))",
-        .haystack = "aa",
+        .input = .{ .haystack = "aa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 2 },
@@ -137,11 +190,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition31",
+    });
+}
+
+test "fowler/repetition/repetition31" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition31",
         .pattern = "((..)|(.))((..)|(.))",
-        .haystack = "aa",
+        .input = .{ .haystack = "aa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 1 },
@@ -152,18 +208,24 @@ pub const cases = [_]runner.Case{
             .{ .start = 1, .end = 2 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition32",
+    });
+}
+
+test "fowler/repetition/repetition32" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition32",
         .pattern = "((..)|(.))((..)|(.))((..)|(.))",
-        .haystack = "aa",
+        .input = .{ .haystack = "aa", .anchored = false },
         .expected = &[_]?Match{},
         .requires = caps.requires(.{ .dot = true, .alternation = true }),
-    },
-    .{
-        .name = "repetition34",
+    });
+}
+
+test "fowler/repetition/repetition34" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition34",
         .pattern = "((..)|(.)){1}",
-        .haystack = "aa",
+        .input = .{ .haystack = "aa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 2 },
@@ -171,11 +233,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition35",
+    });
+}
+
+test "fowler/repetition/repetition35" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition35",
         .pattern = "((..)|(.)){2}",
-        .haystack = "aa",
+        .input = .{ .haystack = "aa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 1, .end = 2 },
@@ -183,18 +248,24 @@ pub const cases = [_]runner.Case{
             .{ .start = 1, .end = 2 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition36",
+    });
+}
+
+test "fowler/repetition/repetition36" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition36",
         .pattern = "((..)|(.)){3}",
-        .haystack = "aa",
+        .input = .{ .haystack = "aa", .anchored = false },
         .expected = &[_]?Match{},
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true }),
-    },
-    .{
-        .name = "repetition38",
+    });
+}
+
+test "fowler/repetition/repetition38" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition38",
         .pattern = "((..)|(.))*",
-        .haystack = "aa",
+        .input = .{ .haystack = "aa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 2 },
@@ -202,11 +273,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition40",
+    });
+}
+
+test "fowler/repetition/repetition40" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition40",
         .pattern = "((..)|(.))",
-        .haystack = "aaa",
+        .input = .{ .haystack = "aaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 2 },
@@ -214,11 +288,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition41",
+    });
+}
+
+test "fowler/repetition/repetition41" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition41",
         .pattern = "((..)|(.))((..)|(.))",
-        .haystack = "aaa",
+        .input = .{ .haystack = "aaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 3 },
             .{ .start = 0, .end = 2 },
@@ -229,11 +306,14 @@ pub const cases = [_]runner.Case{
             .{ .start = 2, .end = 3 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition42",
+    });
+}
+
+test "fowler/repetition/repetition42" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition42",
         .pattern = "((..)|(.))((..)|(.))((..)|(.))",
-        .haystack = "aaa",
+        .input = .{ .haystack = "aaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 3 },
             .{ .start = 0, .end = 1 },
@@ -247,11 +327,14 @@ pub const cases = [_]runner.Case{
             .{ .start = 2, .end = 3 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition44",
+    });
+}
+
+test "fowler/repetition/repetition44" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition44",
         .pattern = "((..)|(.)){1}",
-        .haystack = "aaa",
+        .input = .{ .haystack = "aaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 2 },
@@ -259,11 +342,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition46",
+    });
+}
+
+test "fowler/repetition/repetition46" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition46",
         .pattern = "((..)|(.)){2}",
-        .haystack = "aaa",
+        .input = .{ .haystack = "aaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 3 },
             .{ .start = 2, .end = 3 },
@@ -271,11 +357,14 @@ pub const cases = [_]runner.Case{
             .{ .start = 2, .end = 3 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition47",
+    });
+}
+
+test "fowler/repetition/repetition47" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition47",
         .pattern = "((..)|(.)){3}",
-        .haystack = "aaa",
+        .input = .{ .haystack = "aaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 3 },
             .{ .start = 2, .end = 3 },
@@ -283,11 +372,14 @@ pub const cases = [_]runner.Case{
             .{ .start = 2, .end = 3 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition50",
+    });
+}
+
+test "fowler/repetition/repetition50" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition50",
         .pattern = "((..)|(.))*",
-        .haystack = "aaa",
+        .input = .{ .haystack = "aaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 3 },
             .{ .start = 2, .end = 3 },
@@ -295,11 +387,14 @@ pub const cases = [_]runner.Case{
             .{ .start = 2, .end = 3 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition52",
+    });
+}
+
+test "fowler/repetition/repetition52" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition52",
         .pattern = "((..)|(.))",
-        .haystack = "aaaa",
+        .input = .{ .haystack = "aaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 2 },
@@ -307,11 +402,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition53",
+    });
+}
+
+test "fowler/repetition/repetition53" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition53",
         .pattern = "((..)|(.))((..)|(.))",
-        .haystack = "aaaa",
+        .input = .{ .haystack = "aaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 0, .end = 2 },
@@ -322,11 +420,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition54",
+    });
+}
+
+test "fowler/repetition/repetition54" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition54",
         .pattern = "((..)|(.))((..)|(.))((..)|(.))",
-        .haystack = "aaaa",
+        .input = .{ .haystack = "aaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 0, .end = 2 },
@@ -340,11 +441,14 @@ pub const cases = [_]runner.Case{
             .{ .start = 3, .end = 4 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition56",
+    });
+}
+
+test "fowler/repetition/repetition56" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition56",
         .pattern = "((..)|(.)){1}",
-        .haystack = "aaaa",
+        .input = .{ .haystack = "aaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 2 },
@@ -352,11 +456,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition57",
+    });
+}
+
+test "fowler/repetition/repetition57" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition57",
         .pattern = "((..)|(.)){2}",
-        .haystack = "aaaa",
+        .input = .{ .haystack = "aaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 2, .end = 4 },
@@ -364,11 +471,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition59",
+    });
+}
+
+test "fowler/repetition/repetition59" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition59",
         .pattern = "((..)|(.)){3}",
-        .haystack = "aaaa",
+        .input = .{ .haystack = "aaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 3, .end = 4 },
@@ -376,11 +486,14 @@ pub const cases = [_]runner.Case{
             .{ .start = 3, .end = 4 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition61",
+    });
+}
+
+test "fowler/repetition/repetition61" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition61",
         .pattern = "((..)|(.))*",
-        .haystack = "aaaa",
+        .input = .{ .haystack = "aaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 2, .end = 4 },
@@ -388,11 +501,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition63",
+    });
+}
+
+test "fowler/repetition/repetition63" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition63",
         .pattern = "((..)|(.))",
-        .haystack = "aaaaa",
+        .input = .{ .haystack = "aaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 2 },
@@ -400,11 +516,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition64",
+    });
+}
+
+test "fowler/repetition/repetition64" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition64",
         .pattern = "((..)|(.))((..)|(.))",
-        .haystack = "aaaaa",
+        .input = .{ .haystack = "aaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 0, .end = 2 },
@@ -415,11 +534,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition65",
+    });
+}
+
+test "fowler/repetition/repetition65" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition65",
         .pattern = "((..)|(.))((..)|(.))((..)|(.))",
-        .haystack = "aaaaa",
+        .input = .{ .haystack = "aaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 5 },
             .{ .start = 0, .end = 2 },
@@ -433,11 +555,14 @@ pub const cases = [_]runner.Case{
             .{ .start = 4, .end = 5 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition67",
+    });
+}
+
+test "fowler/repetition/repetition67" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition67",
         .pattern = "((..)|(.)){1}",
-        .haystack = "aaaaa",
+        .input = .{ .haystack = "aaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 2 },
@@ -445,11 +570,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition68",
+    });
+}
+
+test "fowler/repetition/repetition68" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition68",
         .pattern = "((..)|(.)){2}",
-        .haystack = "aaaaa",
+        .input = .{ .haystack = "aaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 2, .end = 4 },
@@ -457,11 +585,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition70",
+    });
+}
+
+test "fowler/repetition/repetition70" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition70",
         .pattern = "((..)|(.)){3}",
-        .haystack = "aaaaa",
+        .input = .{ .haystack = "aaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 5 },
             .{ .start = 4, .end = 5 },
@@ -469,11 +600,14 @@ pub const cases = [_]runner.Case{
             .{ .start = 4, .end = 5 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition73",
+    });
+}
+
+test "fowler/repetition/repetition73" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition73",
         .pattern = "((..)|(.))*",
-        .haystack = "aaaaa",
+        .input = .{ .haystack = "aaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 5 },
             .{ .start = 4, .end = 5 },
@@ -481,11 +615,14 @@ pub const cases = [_]runner.Case{
             .{ .start = 4, .end = 5 },
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition75",
+    });
+}
+
+test "fowler/repetition/repetition75" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition75",
         .pattern = "((..)|(.))",
-        .haystack = "aaaaaa",
+        .input = .{ .haystack = "aaaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 2 },
@@ -493,11 +630,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition76",
+    });
+}
+
+test "fowler/repetition/repetition76" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition76",
         .pattern = "((..)|(.))((..)|(.))",
-        .haystack = "aaaaaa",
+        .input = .{ .haystack = "aaaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 0, .end = 2 },
@@ -508,11 +648,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition77",
+    });
+}
+
+test "fowler/repetition/repetition77" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition77",
         .pattern = "((..)|(.))((..)|(.))((..)|(.))",
-        .haystack = "aaaaaa",
+        .input = .{ .haystack = "aaaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 2 },
@@ -526,11 +669,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition79",
+    });
+}
+
+test "fowler/repetition/repetition79" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition79",
         .pattern = "((..)|(.)){1}",
-        .haystack = "aaaaaa",
+        .input = .{ .haystack = "aaaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 2 },
@@ -538,11 +684,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition80",
+    });
+}
+
+test "fowler/repetition/repetition80" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition80",
         .pattern = "((..)|(.)){2}",
-        .haystack = "aaaaaa",
+        .input = .{ .haystack = "aaaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 4 },
             .{ .start = 2, .end = 4 },
@@ -550,11 +699,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition81",
+    });
+}
+
+test "fowler/repetition/repetition81" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition81",
         .pattern = "((..)|(.)){3}",
-        .haystack = "aaaaaa",
+        .input = .{ .haystack = "aaaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 4, .end = 6 },
@@ -562,11 +714,14 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition83",
+    });
+}
+
+test "fowler/repetition/repetition83" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition83",
         .pattern = "((..)|(.))*",
-        .haystack = "aaaaaa",
+        .input = .{ .haystack = "aaaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 4, .end = 6 },
@@ -574,433 +729,559 @@ pub const cases = [_]runner.Case{
             null,
         },
         .requires = caps.requires(.{ .dot = true, .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive90",
+    });
+}
+
+test "fowler/repetition/repetition-expensive90" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive90",
         .pattern = "X(.?){0,}Y",
-        .haystack = "X1234567Y",
+        .input = .{ .haystack = "X1234567Y", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 9 },
             .{ .start = 7, .end = 8 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_min = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive91",
+    });
+}
+
+test "fowler/repetition/repetition-expensive91" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive91",
         .pattern = "X(.?){1,}Y",
-        .haystack = "X1234567Y",
+        .input = .{ .haystack = "X1234567Y", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 9 },
             .{ .start = 7, .end = 8 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_min = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive92",
+    });
+}
+
+test "fowler/repetition/repetition-expensive92" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive92",
         .pattern = "X(.?){2,}Y",
-        .haystack = "X1234567Y",
+        .input = .{ .haystack = "X1234567Y", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 9 },
             .{ .start = 7, .end = 8 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_min = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive93",
+    });
+}
+
+test "fowler/repetition/repetition-expensive93" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive93",
         .pattern = "X(.?){3,}Y",
-        .haystack = "X1234567Y",
+        .input = .{ .haystack = "X1234567Y", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 9 },
             .{ .start = 7, .end = 8 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_min = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive94",
+    });
+}
+
+test "fowler/repetition/repetition-expensive94" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive94",
         .pattern = "X(.?){4,}Y",
-        .haystack = "X1234567Y",
+        .input = .{ .haystack = "X1234567Y", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 9 },
             .{ .start = 7, .end = 8 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_min = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive95",
+    });
+}
+
+test "fowler/repetition/repetition-expensive95" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive95",
         .pattern = "X(.?){5,}Y",
-        .haystack = "X1234567Y",
+        .input = .{ .haystack = "X1234567Y", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 9 },
             .{ .start = 7, .end = 8 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_min = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive96",
+    });
+}
+
+test "fowler/repetition/repetition-expensive96" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive96",
         .pattern = "X(.?){6,}Y",
-        .haystack = "X1234567Y",
+        .input = .{ .haystack = "X1234567Y", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 9 },
             .{ .start = 7, .end = 8 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_min = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive97",
+    });
+}
+
+test "fowler/repetition/repetition-expensive97" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive97",
         .pattern = "X(.?){7,}Y",
-        .haystack = "X1234567Y",
+        .input = .{ .haystack = "X1234567Y", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 9 },
             .{ .start = 7, .end = 8 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_min = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive98",
+    });
+}
+
+test "fowler/repetition/repetition-expensive98" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive98",
         .pattern = "X(.?){8,}Y",
-        .haystack = "X1234567Y",
+        .input = .{ .haystack = "X1234567Y", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 9 },
             .{ .start = 8, .end = 8 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_min = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive100",
+    });
+}
+
+test "fowler/repetition/repetition-expensive100" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive100",
         .pattern = "X(.?){0,8}Y",
-        .haystack = "X1234567Y",
+        .input = .{ .haystack = "X1234567Y", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 9 },
             .{ .start = 8, .end = 8 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive102",
+    });
+}
+
+test "fowler/repetition/repetition-expensive102" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive102",
         .pattern = "X(.?){1,8}Y",
-        .haystack = "X1234567Y",
+        .input = .{ .haystack = "X1234567Y", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 9 },
             .{ .start = 8, .end = 8 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive104",
+    });
+}
+
+test "fowler/repetition/repetition-expensive104" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive104",
         .pattern = "X(.?){2,8}Y",
-        .haystack = "X1234567Y",
+        .input = .{ .haystack = "X1234567Y", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 9 },
             .{ .start = 8, .end = 8 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive106",
+    });
+}
+
+test "fowler/repetition/repetition-expensive106" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive106",
         .pattern = "X(.?){3,8}Y",
-        .haystack = "X1234567Y",
+        .input = .{ .haystack = "X1234567Y", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 9 },
             .{ .start = 8, .end = 8 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive108",
+    });
+}
+
+test "fowler/repetition/repetition-expensive108" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive108",
         .pattern = "X(.?){4,8}Y",
-        .haystack = "X1234567Y",
+        .input = .{ .haystack = "X1234567Y", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 9 },
             .{ .start = 8, .end = 8 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive110",
+    });
+}
+
+test "fowler/repetition/repetition-expensive110" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive110",
         .pattern = "X(.?){5,8}Y",
-        .haystack = "X1234567Y",
+        .input = .{ .haystack = "X1234567Y", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 9 },
             .{ .start = 8, .end = 8 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive112",
+    });
+}
+
+test "fowler/repetition/repetition-expensive112" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive112",
         .pattern = "X(.?){6,8}Y",
-        .haystack = "X1234567Y",
+        .input = .{ .haystack = "X1234567Y", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 9 },
             .{ .start = 8, .end = 8 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive114",
+    });
+}
+
+test "fowler/repetition/repetition-expensive114" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive114",
         .pattern = "X(.?){7,8}Y",
-        .haystack = "X1234567Y",
+        .input = .{ .haystack = "X1234567Y", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 9 },
             .{ .start = 8, .end = 8 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive115",
+    });
+}
+
+test "fowler/repetition/repetition-expensive115" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive115",
         .pattern = "X(.?){8,8}Y",
-        .haystack = "X1234567Y",
+        .input = .{ .haystack = "X1234567Y", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 9 },
             .{ .start = 8, .end = 8 },
         },
         .requires = caps.requires(.{ .dot = true, .rep_zero_or_one = true, .rep_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive127",
+    });
+}
+
+test "fowler/repetition/repetition-expensive127" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive127",
         .pattern = "(a|ab|c|bcd){0,}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
             .{ .start = 1, .end = 1 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_min = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive129",
+    });
+}
+
+test "fowler/repetition/repetition-expensive129" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive129",
         .pattern = "(a|ab|c|bcd){1,}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
             .{ .start = 1, .end = 1 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_min = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive130",
+    });
+}
+
+test "fowler/repetition/repetition-expensive130" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive130",
         .pattern = "(a|ab|c|bcd){2,}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 3, .end = 6 },
             .{ .start = 6, .end = 6 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_min = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive131",
+    });
+}
+
+test "fowler/repetition/repetition-expensive131" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive131",
         .pattern = "(a|ab|c|bcd){3,}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 3, .end = 6 },
             .{ .start = 6, .end = 6 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_min = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive132",
+    });
+}
+
+test "fowler/repetition/repetition-expensive132" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive132",
         .pattern = "(a|ab|c|bcd){4,}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = false },
         .expected = &[_]?Match{},
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_min = true }),
-    },
-    .{
-        .name = "repetition-expensive134",
+    });
+}
+
+test "fowler/repetition/repetition-expensive134" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive134",
         .pattern = "(a|ab|c|bcd){0,10}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
             .{ .start = 1, .end = 1 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive136",
+    });
+}
+
+test "fowler/repetition/repetition-expensive136" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive136",
         .pattern = "(a|ab|c|bcd){1,10}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
             .{ .start = 1, .end = 1 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive137",
+    });
+}
+
+test "fowler/repetition/repetition-expensive137" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive137",
         .pattern = "(a|ab|c|bcd){2,10}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 3, .end = 6 },
             .{ .start = 6, .end = 6 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive138",
+    });
+}
+
+test "fowler/repetition/repetition-expensive138" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive138",
         .pattern = "(a|ab|c|bcd){3,10}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 3, .end = 6 },
             .{ .start = 6, .end = 6 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive139",
+    });
+}
+
+test "fowler/repetition/repetition-expensive139" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive139",
         .pattern = "(a|ab|c|bcd){4,10}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = false },
         .expected = &[_]?Match{},
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_range = true }),
-    },
-    .{
-        .name = "repetition-expensive141",
+    });
+}
+
+test "fowler/repetition/repetition-expensive141" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive141",
         .pattern = "(a|ab|c|bcd)*(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
             .{ .start = 1, .end = 1 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive143",
+    });
+}
+
+test "fowler/repetition/repetition-expensive143" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive143",
         .pattern = "(a|ab|c|bcd)+(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
             .{ .start = 1, .end = 1 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive149",
+    });
+}
+
+test "fowler/repetition/repetition-expensive149" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive149",
         .pattern = "(ab|a|c|bcd){0,}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 4, .end = 5 },
             .{ .start = 5, .end = 6 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_min = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive151",
+    });
+}
+
+test "fowler/repetition/repetition-expensive151" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive151",
         .pattern = "(ab|a|c|bcd){1,}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 4, .end = 5 },
             .{ .start = 5, .end = 6 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_min = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive153",
+    });
+}
+
+test "fowler/repetition/repetition-expensive153" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive153",
         .pattern = "(ab|a|c|bcd){2,}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 4, .end = 5 },
             .{ .start = 5, .end = 6 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_min = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive155",
+    });
+}
+
+test "fowler/repetition/repetition-expensive155" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive155",
         .pattern = "(ab|a|c|bcd){3,}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 4, .end = 5 },
             .{ .start = 5, .end = 6 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_min = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive156",
+    });
+}
+
+test "fowler/repetition/repetition-expensive156" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive156",
         .pattern = "(ab|a|c|bcd){4,}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = false },
         .expected = &[_]?Match{},
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_min = true }),
-    },
-    .{
-        .name = "repetition-expensive158",
+    });
+}
+
+test "fowler/repetition/repetition-expensive158" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive158",
         .pattern = "(ab|a|c|bcd){0,10}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 4, .end = 5 },
             .{ .start = 5, .end = 6 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive160",
+    });
+}
+
+test "fowler/repetition/repetition-expensive160" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive160",
         .pattern = "(ab|a|c|bcd){1,10}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 4, .end = 5 },
             .{ .start = 5, .end = 6 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive162",
+    });
+}
+
+test "fowler/repetition/repetition-expensive162" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive162",
         .pattern = "(ab|a|c|bcd){2,10}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 4, .end = 5 },
             .{ .start = 5, .end = 6 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive164",
+    });
+}
+
+test "fowler/repetition/repetition-expensive164" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive164",
         .pattern = "(ab|a|c|bcd){3,10}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 4, .end = 5 },
             .{ .start = 5, .end = 6 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_range = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive165",
+    });
+}
+
+test "fowler/repetition/repetition-expensive165" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive165",
         .pattern = "(ab|a|c|bcd){4,10}(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = false },
         .expected = &[_]?Match{},
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_range = true }),
-    },
-    .{
-        .name = "repetition-expensive167",
+    });
+}
+
+test "fowler/repetition/repetition-expensive167" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive167",
         .pattern = "(ab|a|c|bcd)*(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 4, .end = 5 },
             .{ .start = 5, .end = 6 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "repetition-expensive169",
+    });
+}
+
+test "fowler/repetition/repetition-expensive169" {
+    try executeCase(.{
+        .name = "fowler/repetition/repetition-expensive169",
         .pattern = "(ab|a|c|bcd)+(d*)",
-        .haystack = "ababcd",
+        .input = .{ .haystack = "ababcd", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 4, .end = 5 },
             .{ .start = 5, .end = 6 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-};
+    });
+}

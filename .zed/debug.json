@@ -1,0 +1,28 @@
+[
+  {
+    "label": "Debug suite tests",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "build": {
+      "command": "zig",
+      "args": ["build", "test-bin"],
+      "cwd": "$ZED_WORKTREE_ROOT",
+    },
+    "program": "$ZED_WORKTREE_ROOT/zig-out/bin/suite-tests",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "args": ["--verbose"],
+  },
+  {
+    "label": "Debug suite test (single case)",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "build": {
+      "command": "zig",
+      "args": ["build", "test-bin"],
+      "cwd": "$ZED_WORKTREE_ROOT",
+    },
+    "program": "$ZED_WORKTREE_ROOT/zig-out/bin/suite-tests",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "args": ["--case=basic133", "--trace"],
+  },
+]

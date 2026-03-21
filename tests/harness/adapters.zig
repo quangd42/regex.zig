@@ -20,36 +20,13 @@ pub const Backend = enum {
         };
     }
 
-    pub fn BackendType(comptime self: Backend) type {
-        const backend_type = switch (self) {
+    pub fn Engine(comptime self: Backend) type {
+        const engine_type = switch (self) {
             .pikevm => PikeVm,
             else => @panic("not yet implemented"),
         };
-        comptime assertBackendType(backend_type);
-        return backend_type;
-    }
-
-    pub fn Adapter(comptime self: Backend) type {
-        return struct {
-            capabilities: CapSet = self.capabilities(),
-
-            pub fn run(gpa: Allocator, tc: Case, opts: RunOptions) !Result {
-                const prog = try Compiler.compile(gpa, tc.pattern, tc.options);
-                var engine = try self.BackendType().init(gpa, prog);
-                defer engine.deinit();
-
-                if (opts.trace) {
-                    std.debug.print("[trace] pattern={s} haystack={s}\n", .{ tc.pattern, tc.haystack });
-                    engine.prog.dump();
-                }
-
-                return .{
-                    .matched = engine.match(tc.haystack),
-                    .found = engine.find(tc.haystack),
-                    .captures = try engine.findCapturesAlloc(gpa, tc.haystack),
-                };
-            }
-        };
+        comptime assertBackendType(engine_type);
+        return engine_type;
     }
 };
 
@@ -74,23 +51,23 @@ fn assertBackendType(comptime T: type) void {
     assertFnShape(
         T,
         "match",
-        &.{ *T, []const u8 },
+        &.{ *T, Input },
         bool,
-        "fn (*Backend, []const u8) bool",
+        "fn (*Backend, Input) bool",
     );
     assertFnShape(
         T,
         "find",
-        &.{ *T, []const u8 },
+        &.{ *T, Input },
         ?Regex.Match,
-        "fn (*Backend, []const u8) ?Match",
+        "fn (*Backend, Input) ?Match",
     );
     assertFnShape(
         T,
         "findCapturesAlloc",
-        &.{ *T, Allocator, []const u8 },
+        &.{ *T, Allocator, Input },
         anyerror!?Regex.Captures,
-        "fn (*Backend, Allocator, []const u8) !?Captures",
+        "fn (*Backend, Allocator, Input) !?Captures",
     );
 }
 
@@ -134,13 +111,9 @@ const export_test = @import("export_test");
 const Regex = export_test.Regex;
 const PikeVm = export_test.PikeVm;
 const Program = export_test.Program;
-const Compiler = export_test.Compiler;
+const Input = export_test.Input;
 
 const caps = @import("capabilities.zig");
 const Capability = caps.Capability;
 const CapSet = caps.CapSet;
 const cap_backend_map = caps.cap_backend_map;
-const runner = @import("runner.zig");
-const Case = runner.Case;
-const Result = runner.Result;
-const RunOptions = runner.RunOptions;

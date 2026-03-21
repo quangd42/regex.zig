@@ -2,517 +2,675 @@
 //! Source: tests/fowler/data/nullsubexpr.toml
 //! DO NOT EDIT.
 
+const std = @import("std");
+const gpa = std.testing.allocator;
 const harness = @import("../harness.zig");
-const runner = harness.runner;
+const exec = harness.execute;
 const caps = harness.capabilities;
+const root = @import("root");
 const Match = @import("export_test").Regex.Match;
 
-pub const cases = [_]runner.Case{
-    .{
-        .name = "nullsubexpr3",
+fn config() exec.Options {
+    return .{ .verbose = root.verbose, .trace = root.trace };
+}
+
+fn executeCase(tc: exec.Case) !void {
+    try exec.execute(gpa, tc, .pikevm, config());
+}
+
+test "fowler/nullsubexpr/nullsubexpr3" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr3",
         .pattern = "(a*)*",
-        .haystack = "a",
+        .input = .{ .haystack = "a", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr4",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr4" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr4",
         .pattern = "(a*)*",
-        .haystack = "x",
+        .input = .{ .haystack = "x", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 0 },
             .{ .start = 0, .end = 0 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr5",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr5" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr5",
         .pattern = "(a*)*",
-        .haystack = "aaaaaa",
+        .input = .{ .haystack = "aaaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr6",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr6" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr6",
         .pattern = "(a*)*",
-        .haystack = "aaaaaax",
+        .input = .{ .haystack = "aaaaaax", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr7",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr7" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr7",
         .pattern = "(a*)+",
-        .haystack = "a",
+        .input = .{ .haystack = "a", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr8",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr8" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr8",
         .pattern = "(a*)+",
-        .haystack = "x",
+        .input = .{ .haystack = "x", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 0 },
             .{ .start = 0, .end = 0 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr9",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr9" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr9",
         .pattern = "(a*)+",
-        .haystack = "aaaaaa",
+        .input = .{ .haystack = "aaaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr10",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr10" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr10",
         .pattern = "(a*)+",
-        .haystack = "aaaaaax",
+        .input = .{ .haystack = "aaaaaax", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr11",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr11" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr11",
         .pattern = "(a+)*",
-        .haystack = "a",
+        .input = .{ .haystack = "a", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr12",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr12" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr12",
         .pattern = "(a+)*",
-        .haystack = "x",
+        .input = .{ .haystack = "x", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 0 },
             null,
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr13",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr13" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr13",
         .pattern = "(a+)*",
-        .haystack = "aaaaaa",
+        .input = .{ .haystack = "aaaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr14",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr14" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr14",
         .pattern = "(a+)*",
-        .haystack = "aaaaaax",
+        .input = .{ .haystack = "aaaaaax", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr15",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr15" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr15",
         .pattern = "(a+)+",
-        .haystack = "a",
+        .input = .{ .haystack = "a", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr16",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr16" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr16",
         .pattern = "(a+)+",
-        .haystack = "x",
+        .input = .{ .haystack = "x", .anchored = false },
         .expected = &[_]?Match{},
         .requires = caps.requires(.{ .rep_one_or_more = true }),
-    },
-    .{
-        .name = "nullsubexpr17",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr17" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr17",
         .pattern = "(a+)+",
-        .haystack = "aaaaaa",
+        .input = .{ .haystack = "aaaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr18",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr18" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr18",
         .pattern = "(a+)+",
-        .haystack = "aaaaaax",
+        .input = .{ .haystack = "aaaaaax", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr20",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr20" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr20",
         .pattern = "([a]*)*",
-        .haystack = "a",
+        .input = .{ .haystack = "a", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr21",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr21" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr21",
         .pattern = "([a]*)*",
-        .haystack = "x",
+        .input = .{ .haystack = "x", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 0 },
             .{ .start = 0, .end = 0 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr22",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr22" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr22",
         .pattern = "([a]*)*",
-        .haystack = "aaaaaa",
+        .input = .{ .haystack = "aaaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr23",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr23" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr23",
         .pattern = "([a]*)*",
-        .haystack = "aaaaaax",
+        .input = .{ .haystack = "aaaaaax", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr24",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr24" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr24",
         .pattern = "([a]*)+",
-        .haystack = "a",
+        .input = .{ .haystack = "a", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr25",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr25" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr25",
         .pattern = "([a]*)+",
-        .haystack = "x",
+        .input = .{ .haystack = "x", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 0 },
             .{ .start = 0, .end = 0 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr26",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr26" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr26",
         .pattern = "([a]*)+",
-        .haystack = "aaaaaa",
+        .input = .{ .haystack = "aaaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr27",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr27" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr27",
         .pattern = "([a]*)+",
-        .haystack = "aaaaaax",
+        .input = .{ .haystack = "aaaaaax", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_one_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr28",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr28" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr28",
         .pattern = "([^b]*)*",
-        .haystack = "a",
+        .input = .{ .haystack = "a", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .class_negated = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr29",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr29" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr29",
         .pattern = "([^b]*)*",
-        .haystack = "b",
+        .input = .{ .haystack = "b", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 0 },
             .{ .start = 0, .end = 0 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .class_negated = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr30",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr30" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr30",
         .pattern = "([^b]*)*",
-        .haystack = "aaaaaa",
+        .input = .{ .haystack = "aaaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .class_negated = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr31",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr31" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr31",
         .pattern = "([^b]*)*",
-        .haystack = "aaaaaab",
+        .input = .{ .haystack = "aaaaaab", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .class_negated = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr32",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr32" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr32",
         .pattern = "([ab]*)*",
-        .haystack = "a",
+        .input = .{ .haystack = "a", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr33",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr33" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr33",
         .pattern = "([ab]*)*",
-        .haystack = "aaaaaa",
+        .input = .{ .haystack = "aaaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr34",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr34" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr34",
         .pattern = "([ab]*)*",
-        .haystack = "ababab",
+        .input = .{ .haystack = "ababab", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr35",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr35" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr35",
         .pattern = "([ab]*)*",
-        .haystack = "bababa",
+        .input = .{ .haystack = "bababa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr36",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr36" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr36",
         .pattern = "([ab]*)*",
-        .haystack = "b",
+        .input = .{ .haystack = "b", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr37",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr37" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr37",
         .pattern = "([ab]*)*",
-        .haystack = "bbbbbb",
+        .input = .{ .haystack = "bbbbbb", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr38",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr38" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr38",
         .pattern = "([ab]*)*",
-        .haystack = "aaaabcde",
+        .input = .{ .haystack = "aaaabcde", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 5 },
             .{ .start = 0, .end = 5 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr39",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr39" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr39",
         .pattern = "([^a]*)*",
-        .haystack = "b",
+        .input = .{ .haystack = "b", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .class_negated = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr40",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr40" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr40",
         .pattern = "([^a]*)*",
-        .haystack = "bbbbbb",
+        .input = .{ .haystack = "bbbbbb", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .class_negated = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr41",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr41" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr41",
         .pattern = "([^a]*)*",
-        .haystack = "aaaaaa",
+        .input = .{ .haystack = "aaaaaa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 0 },
             .{ .start = 0, .end = 0 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .class_negated = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr42",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr42" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr42",
         .pattern = "([^ab]*)*",
-        .haystack = "ccccxx",
+        .input = .{ .haystack = "ccccxx", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 6 },
             .{ .start = 0, .end = 6 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .class_negated = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr43",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr43" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr43",
         .pattern = "([^ab]*)*",
-        .haystack = "ababab",
+        .input = .{ .haystack = "ababab", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 0 },
             .{ .start = 0, .end = 0 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .class_simple = true, .class_negated = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr46",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr46" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr46",
         .pattern = "((z)+|a)*",
-        .haystack = "zabcde",
+        .input = .{ .haystack = "zabcde", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 1, .end = 2 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr64",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr64" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr64",
         .pattern = "(a*)*(x)",
-        .haystack = "x",
+        .input = .{ .haystack = "x", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 0 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr65",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr65" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr65",
         .pattern = "(a*)*(x)",
-        .haystack = "ax",
+        .input = .{ .haystack = "ax", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 1 },
             .{ .start = 1, .end = 2 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr66",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr66" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr66",
         .pattern = "(a*)*(x)",
-        .haystack = "axa",
+        .input = .{ .haystack = "axa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 1 },
             .{ .start = 1, .end = 2 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr68",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr68" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr68",
         .pattern = "(a*)+(x)",
-        .haystack = "x",
+        .input = .{ .haystack = "x", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 0 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr69",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr69" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr69",
         .pattern = "(a*)+(x)",
-        .haystack = "ax",
+        .input = .{ .haystack = "ax", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 1 },
             .{ .start = 1, .end = 2 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr70",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr70" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr70",
         .pattern = "(a*)+(x)",
-        .haystack = "axa",
+        .input = .{ .haystack = "axa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 0, .end = 1 },
             .{ .start = 1, .end = 2 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_one_or_more = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr72",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr72" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr72",
         .pattern = "(a*){2}(x)",
-        .haystack = "x",
+        .input = .{ .haystack = "x", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 1 },
             .{ .start = 0, .end = 0 },
             .{ .start = 0, .end = 1 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr73",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr73" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr73",
         .pattern = "(a*){2}(x)",
-        .haystack = "ax",
+        .input = .{ .haystack = "ax", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 1, .end = 1 },
             .{ .start = 1, .end = 2 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_exact = true, .input_anchored = true }),
-    },
-    .{
-        .name = "nullsubexpr74",
+    });
+}
+
+test "fowler/nullsubexpr/nullsubexpr74" {
+    try executeCase(.{
+        .name = "fowler/nullsubexpr/nullsubexpr74",
         .pattern = "(a*){2}(x)",
-        .haystack = "axa",
+        .input = .{ .haystack = "axa", .anchored = true },
         .expected = &[_]?Match{
             .{ .start = 0, .end = 2 },
             .{ .start = 1, .end = 1 },
             .{ .start = 1, .end = 2 },
         },
         .requires = caps.requires(.{ .rep_zero_or_more = true, .rep_exact = true, .input_anchored = true }),
-    },
-};
+    });
+}
