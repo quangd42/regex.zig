@@ -13,8 +13,6 @@ options: struct {
     state_limit: usize,
 },
 
-/// See `Program.group_count`.
-group_count: u16 = 1,
 /// See `Program.matcher_count`.
 matcher_count: u32 = 0,
 
@@ -54,7 +52,7 @@ fn compileAst(c: *Compiler, ast: Ast) !Program {
         .ranges = try c.ranges.toOwnedSlice(a),
         .branches = try c.branches.toOwnedSlice(a),
         .arena = c.arena,
-        .group_count = c.group_count,
+        .group_count = ast.group_count,
         .matcher_count = c.matcher_count,
     };
 }
@@ -86,8 +84,7 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) !Frag {
         },
         .class => |cl| return c.compileClass(cl),
         .group => |gr| {
-            const slot_2k = c.group_count * 2;
-            c.group_count += 1;
+            const slot_2k = @as(u32, gr.index) * 2;
             const capture_left = try c.emitState(.{ .capture = .{
                 .slot = slot_2k,
                 .out = c.nextStateId(),

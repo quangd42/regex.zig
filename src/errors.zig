@@ -6,7 +6,6 @@ pub const Diagnostics = union(enum) {
     pub const ParseError = enum {
         invalid_escape,
         escape_at_eof,
-        unexpected_class_close,
         class_not_closed,
         invalid_class_range,
         invalid_ascii_class,

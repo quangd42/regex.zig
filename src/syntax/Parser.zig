@@ -4,6 +4,7 @@ arena: ArenaAllocator,
 // Not owned by parser
 pattern: []const u8,
 offset: usize,
+group_count: u16 = 1,
 
 nodes: ArrayList(Node) = .empty,
 stack: ArrayList(Frame) = .empty,
@@ -19,6 +20,8 @@ const Frame = union(enum) {
     concat: struct {
         /// The actual value of the prev concat.
         value: *NodeList,
+        /// Capture group index assigned at the opening `(`.
+        group_index: u16,
         /// Span of the opening `(`, mostly used for unclosed-group diagnostics.
         opener_span: Span,
     },
@@ -58,7 +61,6 @@ pub fn parse(p: *Parser) Error!Ast {
             '?' => try p.parseRepetition(concat, .question),
             '{' => try p.parseRepetition(concat, .range),
             '[' => try concat.append(a, try p.addNode(try p.parseClass())),
-            ']' => return p.err(.unexpected_class_close),
             '\\' => try concat.append(a, try p.addNode(try p.parseEscape())),
             '.' => try concat.append(a, try p.addNode(.dot)),
             '^' => try concat.append(a, try p.addNode(.{ .assertion = .start_line_or_text })),
@@ -69,7 +71,11 @@ pub fn parse(p: *Parser) Error!Ast {
         }
     } else try p.popGroupAtEnd(concat);
 
-    return .{ .nodes = try p.nodes.toOwnedSlice(a), .arena = p.arena.state };
+    return .{
+        .nodes = try p.nodes.toOwnedSlice(a),
+        .group_count = p.group_count,
+        .arena = p.arena.state,
+    };
 }
 
 // --- parser state manipulations ---
@@ -117,8 +123,10 @@ fn pushGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
     // shelf cur_concat and create new concat to parse group
     try p.stack.append(a, .{ .concat = .{
         .value = cur_concat,
+        .group_index = p.group_count,
         .opener_span = p.prevSpan(),
     } });
+    p.group_count += 1;
     return p.createNodeList();
 }
 
@@ -130,7 +138,9 @@ fn popGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
         .concat => |concat| {
             // cur_concat contains the content of the Group node
             const concat_index = try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
-            const group_index = try p.addNode(.{ .group = .{ .node = concat_index } });
+            const group_index = try p.addNode(.{
+                .group = .{ .node = concat_index, .index = concat.group_index },
+            });
             try concat.value.append(a, group_index);
             return concat.value;
         },
@@ -141,7 +151,9 @@ fn popGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
             switch (next_top) {
                 .concat => |concat| {
                     const alt_index = try p.addNode(.{ .alternation = .{ .nodes = try alt.toOwnedSlice(a) } });
-                    try concat.value.append(a, try p.addNode(.{ .group = .{ .node = alt_index } }));
+                    try concat.value.append(a, try p.addNode(.{
+                        .group = .{ .node = alt_index, .index = concat.group_index },
+                    }));
                     return concat.value;
                 },
                 .alt => {
@@ -652,12 +664,6 @@ test "parse errors" {
             .tag = .class_not_closed,
             .start = 0,
             .end = 8,
-        },
-        .{
-            .pattern = "]",
-            .tag = .unexpected_class_close,
-            .start = 0,
-            .end = 1,
         },
         .{
             .pattern = ")",

@@ -5,6 +5,8 @@ const ArrayList = std.ArrayList;
 const Ast = @This();
 
 nodes: []Node,
+/// See `Program.group_count`.
+group_count: u16 = 1,
 arena: std.heap.ArenaAllocator.State,
 
 pub fn deinit(ast: *Ast, gpa: Allocator) void {
@@ -125,6 +127,7 @@ pub const Class = struct {
 
 pub const Group = struct {
     node: Node.Index,
+    index: u16,
 };
 
 pub const Alternation = struct {
