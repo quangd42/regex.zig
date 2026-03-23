@@ -13,25 +13,28 @@ const assertion = @import("assertion.zig");
 const StateId = engine.StateId;
 const Input = engine.Input;
 const SparseSet = @import("SparseSet.zig");
+const GenerationSet = @import("generation_set.zig").GenerationSet;
 
 const Vm = @This();
 
 prog: Program,
 current_states: ThreadList,
 next_states: ThreadList,
+visited_epsilons: GenerationSet(u32),
 scratch_slots: []Offset,
 stack: EpsilonStack,
 arena: std.heap.ArenaAllocator,
 
 pub fn init(gpa: Allocator, prog: Program) !Vm {
     const state_count: u32 = @intCast(prog.states.len);
-    const slot_count: u32 = @as(u32, @intCast(prog.group_count)) * 2;
+    const slot_count: u32 = @as(u32, prog.group_count) * 2;
     var arena = std.heap.ArenaAllocator.init(gpa);
     const a = arena.allocator();
     return .{
         .prog = prog,
         .current_states = try .init(a, state_count, prog.matcher_count, slot_count),
         .next_states = try .init(a, state_count, prog.matcher_count, slot_count),
+        .visited_epsilons = try .init(a, state_count),
         .stack = try .init(a, state_count),
         .scratch_slots = try initSlots(a, slot_count),
         .arena = arena,
@@ -129,6 +132,7 @@ fn epsilonClosure(
     input: Input,
     slots: []Offset,
 ) void {
+    vm.visited_epsilons.clear();
     vm.stack.push(.{ .explore = start });
     while (!vm.stack.isEmpty()) {
         const top = vm.stack.pop();
@@ -151,6 +155,8 @@ fn explore(
 ) void {
     var id = start;
     while (true) {
+        // Within a single epsilon closure, only explore the first visit to a state.
+        if (!vm.visited_epsilons.add(id)) return;
         switch (vm.prog.states[id]) {
             .char, .ranges, .any, .match, .fail => {
                 vm.next_states.add(mode, id, slots);

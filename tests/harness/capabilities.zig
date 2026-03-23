@@ -302,7 +302,7 @@ pub const cap_backend_map = std.EnumArray(Capability, CapBackendMapEntry).init(.
     .empty_match_no_split_codepoint = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
 
     // Input controls.
-    .input_anchored                 = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .input_anchored                 = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
     .input_bounds                   = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
     .input_bytes                    = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
     .input_utf8_text                = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },

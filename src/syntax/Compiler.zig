@@ -16,6 +16,8 @@ options: struct {
 /// See `Program.matcher_count`.
 matcher_count: u32 = 0,
 
+const Error = error{Compile} || Allocator.Error;
+
 /// Resources allocated are owned by Program after compilation is done, and caller is expected
 /// to call Program.deinit() to free them.
 pub fn compile(gpa: Allocator, pattern: []const u8, options: Options) !Program {
@@ -37,16 +39,19 @@ pub fn compile(gpa: Allocator, pattern: []const u8, options: Options) !Program {
     return compiler.compileAst(ast);
 }
 
-fn compileAst(c: *Compiler, ast: Ast) !Program {
+fn compileAst(c: *Compiler, ast: Ast) Error!Program {
     const a = c.arena.allocator();
 
-    _ = try c.emitState(.{ .capture = .{ .slot = 0, .out = 1 } }); // capture_0
-    const frag = try c.compileNode(ast, ast.root());
-    const capture_1 = try c.emitState(.{
-        .capture = .{ .slot = 1, .out = c.nextStateId() },
-    });
-    frag.outs.patch(c, capture_1);
-    _ = try c.emitState(.match);
+    // PatchList uses state id 0 as the dangling sentinel, so the start capture for
+    // the whole match at id 0 must stay outside normal Frag patching.
+    const start_capture = try c.emitState(.{ .capture = .{ .slot = 0, .out = 0 } });
+    assert(start_capture == 0);
+
+    var frag = try c.compileNode(ast, ast.root());
+    assert(frag.id != 0);
+    c.states.items[start_capture].capture.out = frag.id;
+    frag = c.cat(frag, try c.cap(1));
+    _ = c.cat(frag, try c.state(.match));
     return .{
         .states = try c.states.toOwnedSlice(a),
         .ranges = try c.ranges.toOwnedSlice(a),
@@ -57,173 +62,123 @@ fn compileAst(c: *Compiler, ast: Ast) !Program {
     };
 }
 
-fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) !Frag {
+fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) Error!Frag {
     const a = c.arena.allocator();
     const node = ast.nodes[node_index];
     switch (node) {
         .literal => |lit| {
-            const id = try c.emitState(.{ .char = .{ .byte = lit.char(), .out = 0 } });
-            return .{ .id = id, .outs = .fromOne(id) };
+            return c.state(.{ .char = .{ .byte = lit.char(), .out = 0 } });
         },
         .dot => {
-            const id = try c.emitState(.{ .any = .{ .out = 0 } });
-            return .{ .id = id, .outs = .fromOne(id) };
+            return c.state(.{ .any = .{ .out = 0 } });
         },
         .class_perl => |cl| {
             const ranges = perlRanges(cl);
             const start = c.ranges.items.len;
             try c.ranges.ensureUnusedCapacity(a, ranges.len);
             c.ranges.appendSliceAssumeCapacity(ranges);
-            const id = try c.emitState(.{ .ranges = .{
+            return c.state(.{ .ranges = .{
                 .start = @intCast(start),
                 .len = @intCast(ranges.len),
                 .negated = cl.negated,
                 .out = 0,
             } });
-            return .{ .id = id, .outs = .fromOne(id) };
         },
-        .class => |cl| return c.compileClass(cl),
+        .class => |cl| return c.class(cl),
         .group => |gr| {
             const slot_2k = @as(u32, gr.index) * 2;
-            const capture_left = try c.emitState(.{ .capture = .{
-                .slot = slot_2k,
-                .out = c.nextStateId(),
-            } });
-            const sub_frag = try c.compileNode(ast, gr.node);
-            const capture_right = try c.emitState(.{ .capture = .{ .slot = slot_2k + 1, .out = 0 } });
-            sub_frag.outs.patch(c, capture_right);
-            return .{ .id = capture_left, .outs = .fromOne(capture_right) };
+            const frag = c.cat(try c.cap(slot_2k), try c.compileNode(ast, gr.node));
+            return c.cat(frag, try c.cap(slot_2k + 1));
         },
-        .concat => |cat| {
-            if (cat.nodes.len == 0) {
+        .concat => |concat| {
+            if (concat.nodes.len == 0) {
                 // Occurs in empty alternation branch
-                return c.compileEmpty();
+                return c.empty();
             }
-            var frag = try c.compileNode(ast, cat.nodes[0]);
-            for (cat.nodes[1..]) |index| {
-                const next = try c.compileNode(ast, index);
-                frag.outs.patch(c, next.id);
-                frag.outs = next.outs;
+            var frag = try c.compileNode(ast, concat.nodes[0]);
+            for (concat.nodes[1..]) |index| {
+                frag = c.cat(frag, try c.compileNode(ast, index));
             }
             return frag;
         },
         .alternation => |alt| {
-            if (alt.nodes.len == 2) {
-                const id = try c.emitAlt2();
-                const left = try c.compileNode(ast, alt.nodes[0]);
-                const right = try c.compileNode(ast, alt.nodes[1]);
-                c.states.items[id] = .{ .alt2 = .{ .left = left.id, .right = right.id } };
-                return .{ .id = id, .outs = left.outs.append(c, right.outs) };
-            }
+            switch (alt.nodes.len) {
+                0 => return c.empty(),
+                1 => return c.compileNode(ast, alt.nodes[0]),
+                2 => return c.alt2(
+                    try c.compileNode(ast, alt.nodes[0]),
+                    try c.compileNode(ast, alt.nodes[1]),
+                ),
+                else => {
+                    const start = c.branches.items.len;
+                    try c.branches.ensureTotalCapacity(a, start + alt.nodes.len);
 
-            const id = try c.emitState(.{
-                .alt = .{ .start = @intCast(c.branches.items.len), .len = @intCast(alt.nodes.len) },
-            });
-            // branches order preserves leftmost-first semantics.
-            try c.branches.ensureTotalCapacity(a, c.branches.items.len + alt.nodes.len);
-            var frag: Frag = .{ .id = id, .outs = .empty };
-            for (alt.nodes) |index| {
-                const sub_frag = try c.compileNode(ast, index);
-                c.branches.appendAssumeCapacity(sub_frag.id);
-                frag.outs = frag.outs.append(c, sub_frag.outs);
+                    var frag = try c.state(.{
+                        .alt = .{ .start = @intCast(start), .len = @intCast(alt.nodes.len) },
+                    });
+                    for (alt.nodes) |index| {
+                        const branch = try c.compileNode(ast, index);
+                        c.branches.appendAssumeCapacity(branch.id);
+                        frag.outs = frag.outs.append(c, branch.outs);
+                        frag.nullable = frag.nullable or branch.nullable;
+                    }
+                    return frag;
+                },
             }
-            return frag;
         },
         .repetition => |rep| {
             const Kind = Ast.Repetition.Kind;
             rep_kind: switch (rep.kind) {
                 .zero_or_one => {
-                    // alt: left -> node, right -> next
-                    const alt = try c.emitAlt2();
-                    var sub_frag = try c.compileNode(ast, rep.node);
-                    const rep_outs = c.repetitionAlt(alt, sub_frag.id, rep.lazy);
-                    sub_frag.outs = sub_frag.outs.append(c, rep_outs);
-                    return .{ .id = alt, .outs = sub_frag.outs };
+                    return c.quest(try c.compileNode(ast, rep.node), rep.lazy);
                 },
                 .zero_or_more => {
-                    // (alt: left -> node, right -> next); node -> alt
-                    const alt = try c.emitAlt2();
-                    const sub_frag = try c.compileNode(ast, rep.node);
-                    sub_frag.outs.patch(c, alt);
-                    const outs = c.repetitionAlt(alt, sub_frag.id, rep.lazy);
-                    return .{ .id = alt, .outs = outs };
+                    return c.star(try c.compileNode(ast, rep.node), rep.lazy);
                 },
                 .one_or_more => {
-                    // node -> (alt: left -> node, right -> next)
-                    const sub_frag = try c.compileNode(ast, rep.node);
-                    const alt = try c.emitAlt2();
-                    sub_frag.outs.patch(c, alt);
-                    const outs = c.repetitionAlt(alt, sub_frag.id, rep.lazy);
-                    return .{ .id = sub_frag.id, .outs = outs };
+                    return c.plus(try c.compileNode(ast, rep.node), rep.lazy);
                 },
-                // TODO: Compilation for counted repetition perhaps will be cut once
-                // the ast is simplified.
                 .exactly => |min| {
-                    if (min == 0) return c.compileEmpty();
-                    var frag = try c.compileNode(ast, rep.node);
-                    for (0..min - 1) |_| {
-                        const next_frag = try c.compileNode(ast, rep.node);
-                        frag.outs.patch(c, next_frag.id);
-                        frag.outs = next_frag.outs;
-                    }
-                    return frag;
+                    return c.compileNTimes(ast, rep.node, min);
                 },
                 .at_least => |min| {
                     switch (min) {
                         0 => continue :rep_kind Kind.zero_or_more,
                         1 => continue :rep_kind Kind.one_or_more,
-                        else => {
-                            const result_id = c.nextStateId();
-                            var frag: ?Frag = null;
-                            for (0..min) |_| {
-                                const next_frag = try c.compileNode(ast, rep.node);
-                                if (frag) |f| f.outs.patch(c, next_frag.id);
-                                frag = next_frag;
-                            }
-                            const alt = try c.emitAlt2();
-                            const last_frag = frag.?; //  frag != null because `min` >= 2
-                            last_frag.outs.patch(c, alt);
-                            const outs = c.repetitionAlt(alt, last_frag.id, rep.lazy);
-                            return .{ .id = result_id, .outs = outs };
-                        },
+                        else => return c.cat(
+                            try c.compileNTimes(ast, rep.node, min - 1),
+                            try c.plus(try c.compileNode(ast, rep.node), rep.lazy),
+                        ),
                     }
                 },
                 .between => |b| {
-                    if (b.max == 0) return c.compileEmpty();
+                    assert(b.min <= b.max); // Handled in parse phase
+                    if (b.max == 0) return c.empty();
                     if (b.max == 1 and b.min == 0) continue :rep_kind Kind.zero_or_one;
                     if (b.max == b.min) continue :rep_kind .{ .exactly = b.min };
-                    const result_id = c.nextStateId();
-                    // Compile repeat arg node min times (can be 0)
-                    var frag: ?Frag = null;
-                    for (0..b.min) |_| {
-                        const next_frag = try c.compileNode(ast, rep.node);
-                        if (frag) |f| f.outs.patch(c, next_frag.id);
-                        frag = next_frag;
-                    }
 
-                    // For (max - min) times, create this shape (lazy = false):
-                    // alt2: left  -> arg node (arg node: out -> the next alt2)
-                    //       right -> dangling
-                    // When lazy = true, left and right are reversed.
-                    // This loop runs at least once because max < min case is handled
-                    // in parsing phase, max == min case is sent to .exactly case.
-                    assert(b.max > b.min);
-                    var outs: PatchList = .empty;
-                    for (0..b.max - b.min) |_| {
-                        const alt = try c.emitAlt2();
-                        const repeat_arg = try c.compileNode(ast, rep.node);
-                        outs = outs.append(c, c.repetitionAlt(alt, repeat_arg.id, rep.lazy));
-                        if (frag) |f| f.outs.patch(c, alt);
-                        frag = .{ .id = alt, .outs = repeat_arg.outs };
+                    // Lower x{n,m} as a required prefix plus a nested optional
+                    // suffix, e.g. x{2,5} => xx(x(x(x)?)?)?. A flat chain like
+                    // xx x? x? x? would admit many equivalent epsilon paths for
+                    // the same repetition count. The nested form preserves the
+                    // same language while doing less VM work.
+                    //
+                    // Reference:
+                    // https://github.com/golang/go/blob/master/src/regexp/syntax/simplify.go
+                    var suffix = try c.quest(try c.compileNode(ast, rep.node), rep.lazy);
+                    for (b.min..b.max - 1) |_| {
+                        suffix = try c.quest(
+                            c.cat(try c.compileNode(ast, rep.node), suffix),
+                            rep.lazy,
+                        );
                     }
-                    // frag != null because the loop ran at least once
-                    outs = outs.append(c, frag.?.outs);
-                    return .{ .id = result_id, .outs = outs };
+                    if (b.min == 0) return suffix;
+                    return c.cat(try c.compileNTimes(ast, rep.node, b.min), suffix);
                 },
             }
         },
         .assertion => |asrt| {
-            const id = try c.emitState(.{ .assert = .{
+            return c.state(.{ .assert = .{
                 .pred = switch (asrt) {
                     .start_line_or_text => .start_text,
                     .end_line_or_text => .end_text,
@@ -232,13 +187,8 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) !Frag {
                 },
                 .out = 0,
             } });
-            return .{ .id = id, .outs = .fromOne(id) };
         },
     }
-}
-
-fn nextStateId(c: *Compiler) StateId {
-    return @intCast(c.states.items.len + 1);
 }
 
 fn err(c: *Compiler, compile_diag: Diagnostics.Compile) error{Compile} {
@@ -267,46 +217,129 @@ fn checkStateLimit(c: *Compiler) error{Compile}!void {
     } });
 }
 
-fn emitState(c: *Compiler, state: State) !StateId {
+fn emitState(c: *Compiler, s: State) !StateId {
     try c.checkStateLimit();
-    const state_id: StateId = @intCast(c.states.items.len);
-    try c.states.append(c.arena.allocator(), state);
-    switch (state) {
+    const id: StateId = @intCast(c.states.items.len);
+    try c.states.append(c.arena.allocator(), s);
+    switch (s) {
         .char, .ranges, .any, .fail, .match => c.matcher_count += 1,
         .empty, .capture, .assert, .alt, .alt2 => {},
     }
-    return state_id;
+    return id;
 }
 
-/// Emit State.alt2 with both ends dangling.
-fn emitAlt2(c: *Compiler) !StateId {
-    return c.emitState(.{ .alt2 = .{ .left = 0, .right = 0 } });
+fn state(c: *Compiler, s: State) !Frag {
+    const id = try c.emitState(s);
+    return .{
+        .id = id,
+        .outs = switch (s) {
+            .char, .ranges, .any, .empty, .capture, .assert => .fromOne(id),
+            .fail, .match, .alt, .alt2 => .empty,
+        },
+        // .alt and .alt2 are typically emitted before their branch fragments are
+        // known, so callers overwrite their nullable value once children are
+        // attached.
+        .nullable = switch (s) {
+            .char, .ranges, .any, .alt, .alt2, .fail => false,
+            .empty, .capture, .assert, .match => true,
+        },
+    };
 }
 
-/// Helper to compile repetition. When `lazy` = false, creates the following shape:
+fn cap(c: *Compiler, slot: u32) !Frag {
+    return c.state(.{ .capture = .{ .slot = slot, .out = 0 } });
+}
+
+fn cat(c: *Compiler, lhs: Frag, rhs: Frag) Frag {
+    if (lhs.id == 0 or rhs.id == 0) return .zero;
+    lhs.outs.patch(c, rhs.id);
+    return .{
+        .id = lhs.id,
+        .outs = rhs.outs,
+        .nullable = lhs.nullable and rhs.nullable,
+    };
+}
+
+fn alt2(c: *Compiler, lhs: Frag, rhs: Frag) !Frag {
+    if (lhs.id == 0) return rhs;
+    if (rhs.id == 0) return lhs;
+
+    var frag = try c.state(.{ .alt2 = .{ .left = lhs.id, .right = rhs.id } });
+    frag.outs = lhs.outs.append(c, rhs.outs);
+    frag.nullable = lhs.nullable or rhs.nullable;
+    return frag;
+}
+
+fn quest(c: *Compiler, f1: Frag, lazy: bool) !Frag {
+    var frag = try c.state(.{ .alt2 = .{ .left = 0, .right = 0 } });
+    const alt = &c.states.items[frag.id].alt2;
+    if (lazy) {
+        alt.right = f1.id;
+        frag.outs = .fromOne(frag.id);
+    } else {
+        alt.left = f1.id;
+        frag.outs = .fromOneRight(frag.id);
+    }
+    frag.outs = frag.outs.append(c, f1.outs);
+    frag.nullable = true;
+    return frag;
+}
+
+/// Returns the fragment for the main loop of a plus or star. When `lazy` =
+/// false, creates the following shape:
 /// ```
-/// alt2: left  -> arg
-///       right -> next (dangling)
+/// f1  -> alt2: left  -> f1
+///              right -> next (dangling)
 /// ```
 /// When `lazy` = true, `left` and `right` are reversed.
-/// Returns the dangling patch list to `next`.
-fn repetitionAlt(c: *Compiler, alt: StateId, arg: StateId, lazy: bool) PatchList {
-    if (!lazy) {
-        c.states.items[alt] = .{ .alt2 = .{ .left = arg, .right = 0 } };
-        return .fromOneRight(alt);
+fn loop(c: *Compiler, f1: Frag, lazy: bool) !Frag {
+    var frag = try c.state(.{ .alt2 = .{ .left = 0, .right = 0 } });
+    const alt = &c.states.items[frag.id].alt2;
+    if (lazy) {
+        alt.right = f1.id;
+        frag.outs = .fromOne(frag.id);
     } else {
-        c.states.items[alt] = .{ .alt2 = .{ .left = 0, .right = arg } };
-        return .fromOne(alt);
+        alt.left = f1.id;
+        frag.outs = .fromOneRight(frag.id);
     }
+    f1.outs.patch(c, frag.id);
+    frag.nullable = true;
+    return frag;
 }
 
-/// Creates a Frag that only contains a single State.empty.
-fn compileEmpty(c: *Compiler) !Frag {
-    const id = try c.emitState(.{ .empty = .{ .out = 0 } });
-    return .{ .id = id, .outs = .fromOne(id) };
+fn plus(c: *Compiler, f1: Frag, lazy: bool) !Frag {
+    const loop_frag = try c.loop(f1, lazy);
+    return .{
+        .id = f1.id,
+        .outs = loop_frag.outs,
+        .nullable = f1.nullable,
+    };
 }
 
-fn compileClass(c: *Compiler, cls: Ast.Class) !Frag {
+fn star(c: *Compiler, f1: Frag, lazy: bool) !Frag {
+    if (f1.nullable) {
+        // Use (f1+)? to get priority match order correct.
+        // https://github.com/golang/go/issues/46123
+        return c.quest(try c.plus(f1, lazy), lazy);
+    }
+    return c.loop(f1, lazy);
+}
+
+fn compileNTimes(c: *Compiler, ast: Ast, node_index: Ast.Node.Index, count: u16) !Frag {
+    if (count == 0) return c.empty();
+
+    var frag = try c.compileNode(ast, node_index);
+    for (1..count) |_| {
+        frag = c.cat(frag, try c.compileNode(ast, node_index));
+    }
+    return frag;
+}
+
+fn empty(c: *Compiler) !Frag {
+    return c.state(.{ .empty = .{ .out = 0 } });
+}
+
+fn class(c: *Compiler, cls: Ast.Class) !Frag {
     const a = c.arena.allocator();
     const start = c.ranges.items.len;
 
@@ -364,25 +397,22 @@ fn compileClass(c: *Compiler, cls: Ast.Class) !Frag {
 
     // This might happen when class items cancel each other, e.g. [^\d\D]
     if (len == 0) {
-        const id = try c.emitState(.fail);
-        return .{ .id = id, .outs = .empty };
+        return c.state(.fail);
     }
 
     const ranges = c.ranges.items[start..][0..len];
     // When the class amounts to a single char, we'll just emit a State.char.
     if (ranges.len == 1 and ranges[0].from == ranges[0].to) {
         c.ranges.shrinkRetainingCapacity(start);
-        const id = try c.emitState(.{ .char = .{ .byte = ranges[0].from, .out = 0 } });
-        return .{ .id = id, .outs = .fromOne(id) };
+        return c.state(.{ .char = .{ .byte = ranges[0].from, .out = 0 } });
     }
 
-    const id = try c.emitState(.{ .ranges = .{
+    return c.state(.{ .ranges = .{
         .start = @intCast(start),
         .len = @intCast(len),
         .negated = false,
         .out = 0,
     } });
-    return .{ .id = id, .outs = .fromOne(id) };
 }
 
 fn itemRangeUpperBound(item: Ast.Class.Item) usize {
@@ -558,13 +588,25 @@ fn negateRanges(c: *Compiler, source: []const ByteRange) ![]const ByteRange {
 /// A compiled fragment returned by compileNode.
 /// - id: the id of the entry state of the fragment
 /// - outs: dangling out-edges that must be patched to the next fragment
+///
+/// In the state list for execution, id 0 is reserved for .capture slot 0 state,
+/// so `Frag.zero` can be used as an internal sentinel and never refers to a
+/// real patchable fragment.
 const Frag = struct {
     id: StateId,
     outs: PatchList,
+    nullable: bool,
+
+    const zero: Frag = .{
+        .id = 0,
+        .outs = .empty,
+        .nullable = false,
+    };
 };
 
 /// In the state list for execution, id 0 is reserved for .capture slot 0 state,
 /// so it's safe to repurpose it during building as dangling (i.e. to be patched).
+/// For `PatchList`, this means that `Ptr` with StateId = 0 indicates dangling.
 ///
 /// All `Id` value referenced by PatchList are encoded into Ptr.
 ///
