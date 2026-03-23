@@ -35,9 +35,16 @@ pub fn execute(
 ) !void {
     comptime caps_mod.assertCapBaseline(backend);
 
+    var stderr_buf: [4096]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&stderr_buf);
+    const stderr = &stderr_writer.interface;
+
     const missing = tc.requires.differenceWith(backend.capabilities());
     if (missing.count() > 0) {
-        if (opts.verbose) printSkipReason(tc.name, missing);
+        if (opts.verbose) {
+            try printSkipReason(stderr, tc.name, missing);
+            try stderr.flush();
+        }
         return error.SkipZigTest;
     }
 
@@ -46,19 +53,20 @@ pub fn execute(
         .diagnostics = &diag,
         .limits = tc.options.limits,
     }) catch |err| {
-        printCaseContext(tc);
-        print("  error: {s}\n", .{@errorName(err)});
+        try printCaseContext(stderr, tc);
+        try stderr.print("  error: {s}\n", .{@errorName(err)});
         switch (err) {
             error.Parse => switch (diag) {
-                .parse => |parse| print("  error tag: {s}\n", .{@tagName(parse.err)}),
+                .parse => |parse| try stderr.print("  error tag: {s}\n", .{@tagName(parse.err)}),
                 .compile => unreachable,
             },
             error.Compile => switch (diag) {
                 .parse => unreachable,
-                .compile => |compile| print("  error tag: {s}\n", .{@tagName(compile)}),
+                .compile => |compile| try stderr.print("  error tag: {s}\n", .{@tagName(compile)}),
             },
             else => {},
         }
+        try stderr.flush();
         return error.TestUnexpectedResult;
     };
 
@@ -67,11 +75,12 @@ pub fn execute(
     defer engine.deinit();
 
     if (opts.trace) {
-        print(
+        try stderr.print(
             "[trace] name={s} pattern=\"{s}\" haystack=\"{s}\" anchored={s}\n",
             .{ tc.name, tc.pattern, tc.input.haystack, if (tc.input.anchored) "true" else "false" },
         );
-        engine.prog.dump();
+        try engine.prog.dump(stderr);
+        try stderr.flush();
     }
 
     const matched = engine.match(tc.input);
@@ -85,12 +94,13 @@ pub fn execute(
     const failed = match_failed or find_failed or captures_failure != null;
 
     if (failed) {
-        printFailureHeader(tc);
-        if (match_failed) printMatchFailure(tc, matched);
-        if (find_failed) printFindFailure(tc, found);
+        try printFailureHeader(stderr, tc);
+        if (match_failed) try printMatchFailure(stderr, tc, matched);
+        if (find_failed) try printFindFailure(stderr, tc, found);
         if (captures_failure) |capture_failure| {
-            printCapturesFailure(tc, captures, capture_failure);
+            try printCapturesFailure(stderr, tc, captures, capture_failure);
         }
+        try stderr.flush();
         return error.TestUnexpectedResult;
     }
 }
@@ -118,68 +128,68 @@ fn checkCaptures(tc: Case, captures: ?Regex.Captures) ?CaptureFailure {
     return null;
 }
 
-fn printSkipReason(case_name: []const u8, missing: CapSet) void {
-    print("[{s}] skip: missing capabilities ({d}): ", .{ case_name, missing.count() });
+fn printSkipReason(w: *std.Io.Writer, case_name: []const u8, missing: CapSet) !void {
+    try w.print("[{s}] skip: missing capabilities ({d}): ", .{ case_name, missing.count() });
 
     var it = missing.iterator();
     var first = true;
     while (it.next()) |cap| {
-        if (!first) print(", ", .{});
+        if (!first) try w.writeAll(", ");
         first = false;
-        print("{s}", .{@tagName(cap)});
+        try w.print("{s}", .{@tagName(cap)});
     }
-    print("\n", .{});
+    try w.writeByte('\n');
 }
 
-fn printCaseContext(tc: Case) void {
-    print("[{s}]\n", .{tc.name});
-    print("  pattern: {s}\n", .{tc.pattern});
-    print("  haystack: {s}\n", .{tc.input.haystack});
-    print("  anchored: {s}\n", .{if (tc.input.anchored) "true" else "false"});
+fn printCaseContext(w: *std.Io.Writer, tc: Case) !void {
+    try w.print("[{s}]\n", .{tc.name});
+    try w.print("  pattern: {s}\n", .{tc.pattern});
+    try w.print("  haystack: {s}\n", .{tc.input.haystack});
+    try w.print("  anchored: {s}\n", .{if (tc.input.anchored) "true" else "false"});
 }
 
-fn printFailureHeader(tc: Case) void {
-    printCaseContext(tc);
-    print("  test failed:\n", .{});
+fn printFailureHeader(w: *std.Io.Writer, tc: Case) !void {
+    try printCaseContext(w, tc);
+    try w.writeAll("  test failed:\n");
 }
 
-fn printMatchFailure(tc: Case, matched: bool) void {
-    print("    - match() expectation mismatch\n", .{});
-    print("      ├─ expected: {any}\n", .{tc.expectedMatch()});
-    print("      └─ actual  : {any}\n", .{matched});
+fn printMatchFailure(w: *std.Io.Writer, tc: Case, matched: bool) !void {
+    try w.writeAll("    - match() expectation mismatch\n");
+    try w.print("      ├─ expected: {any}\n", .{tc.expectedMatch()});
+    try w.print("      └─ actual  : {any}\n", .{matched});
 }
 
-fn printFindFailure(tc: Case, found: ?Regex.Match) void {
-    print("    - find() result mismatch\n", .{});
-    print("      ├─ expected: {any}\n", .{tc.expectedFind()});
-    print("      └─ actual  : {any}\n", .{found});
+fn printFindFailure(w: *std.Io.Writer, tc: Case, found: ?Regex.Match) !void {
+    try w.writeAll("    - find() result mismatch\n");
+    try w.print("      ├─ expected: {any}\n", .{tc.expectedFind()});
+    try w.print("      └─ actual  : {any}\n", .{found});
 }
 
 fn printCapturesFailure(
+    w: *std.Io.Writer,
     tc: Case,
     captures: ?Regex.Captures,
     failure: CaptureFailure,
-) void {
+) !void {
     const reason = switch (failure) {
         .non_match => "findCaptures() returned groups for non-match",
         .missing => "findCaptures() returned null",
         .len => "capture group count mismatch",
         .value => "capture group value mismatch",
     };
-    print("    - {s}\n", .{reason});
-    print("      ├─ expected groups_len: {d}\n", .{tc.expected.len});
-    print("      ├─ actual   groups_len: {d}\n", .{if (captures) |capt| capt.groups.len else 0});
-    print("      ├─ expected   captures: {any}\n", .{tc.expected});
+    try w.print("    - {s}\n", .{reason});
+    try w.print("      ├─ expected groups_len: {d}\n", .{tc.expected.len});
+    try w.print("      ├─ actual   groups_len: {d}\n", .{if (captures) |capt| capt.groups.len else 0});
+    try w.print("      ├─ expected   captures: {any}\n", .{tc.expected});
     if (captures) |capt| {
-        print("      └─ actual     captures: {any}\n", .{capt.groups});
+        try w.print("      └─ actual     captures: {any}\n", .{capt.groups});
     } else {
-        print("      └─ actual     captures: null\n", .{});
+        try w.writeAll("      └─ actual     captures: null\n");
     }
 }
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const print = std.debug.print;
 
 const export_test = @import("export_test");
 const Regex = export_test.Regex;

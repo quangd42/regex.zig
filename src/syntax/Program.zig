@@ -112,46 +112,46 @@ pub const State = union(enum) {
     pub const Id = u32;
 };
 
-pub fn dump(prog: Program) void {
-    std.debug.print("States\n", .{});
+pub fn dump(prog: Program, w: *std.Io.Writer) !void {
+    try w.writeAll("States\n");
     for (prog.states, 0..) |state, i| {
         switch (state) {
-            .char => |pl| std.debug.print(
+            .char => |pl| try w.print(
                 "{d:>3} {s:<8} byte={c}  out={d:<3}\n",
                 .{ i, @tagName(state), pl.byte, pl.out },
             ),
             .ranges => |pl| {
-                std.debug.print(
+                try w.print(
                     "{d:>3} {s:<8}         out={d:<3}  start={d:<3} len={d:<3}\n",
                     .{ i, @tagName(state), pl.out, pl.start, pl.len },
                 );
             },
-            .any => |pl| std.debug.print("{d:>3} {s:<8}         out={d:<3}\n", .{ i, @tagName(state), pl.out }),
-            .empty => |pl| std.debug.print("{d:>3} {s:<8}         out={d:<3}\n", .{ i, @tagName(state), pl.out }),
-            .assert => |pl| std.debug.print("{d:>3} {s:<8}         out={d:<3}  cond={s}\n", .{ i, @tagName(state), pl.out, @tagName(pl.pred) }),
+            .any => |pl| try w.print("{d:>3} {s:<8}         out={d:<3}\n", .{ i, @tagName(state), pl.out }),
+            .empty => |pl| try w.print("{d:>3} {s:<8}         out={d:<3}\n", .{ i, @tagName(state), pl.out }),
+            .assert => |pl| try w.print("{d:>3} {s:<8}         out={d:<3}  cond={s}\n", .{ i, @tagName(state), pl.out, @tagName(pl.pred) }),
             .alt => |pl| {
-                std.debug.print(
+                try w.print(
                     "{d:>3} {s:<8}                  start={d:<3} len={d:<3}",
                     .{ i, @tagName(state), pl.start, pl.len },
                 );
-                std.debug.print("  [ ", .{});
+                try w.writeAll("  [ ");
                 for (prog.branches[pl.start..][0..pl.len]) |out_idx| {
-                    std.debug.print("{d} ", .{out_idx});
+                    try w.print("{d} ", .{out_idx});
                 }
-                std.debug.print("]\n", .{});
+                try w.writeAll("]\n");
             },
             .alt2 => |pl| {
-                std.debug.print(
+                try w.print(
                     "{d:>3} {s:<8}         left={d:<3} right={d:<3}\n",
                     .{ i, @tagName(state), pl.left, pl.right },
                 );
             },
-            .capture => |pl| std.debug.print(
+            .capture => |pl| try w.print(
                 "{d:>3} {s:<8} slot={d}  out={d:<3}\n",
                 .{ i, @tagName(state), pl.slot, pl.out },
             ),
-            .match => std.debug.print("{d:>3} {s:<8}\n", .{ i, @tagName(state) }),
-            .fail => std.debug.print("{d:>3} {s:<8}\n", .{ i, @tagName(state) }),
+            .match => try w.print("{d:>3} {s:<8}\n", .{ i, @tagName(state) }),
+            .fail => try w.print("{d:>3} {s:<8}\n", .{ i, @tagName(state) }),
         }
     }
 

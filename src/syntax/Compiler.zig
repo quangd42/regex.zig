@@ -659,296 +659,187 @@ const PatchList = struct {
 
 const testing = std.testing;
 
-test "basic compile" {
+fn expectProgram(pattern: []const u8, expected: []const Vertex) !void {
     const a = testing.allocator;
-    const expect = testing.expect;
-
-    const pattern = "a((b|c)|\\d|)(x|y)z";
     var prog = try Compiler.compile(a, pattern, .{});
     defer prog.deinit();
+    const graph = try g.graphView(prog, a);
+    defer graph.deinit(a);
+    const actual = graph.vertices;
 
-    const states = prog.states;
-    try expect(states.len == 20);
-
-    try expect(states[1].char.byte == 'a');
-    try expect(states[1].char.out == 2);
-
-    try expect(states[3].alt.start == 0);
-    try expect(states[3].alt.len == 3);
-    try expect(prog.branches[0] == 4);
-    try expect(prog.branches[1] == 9);
-    try expect(prog.branches[2] == 10);
-
-    try expect(states[5].alt2.left == 6);
-    try expect(states[5].alt2.right == 7);
-    try expect(states[6].char.byte == 'b');
-    try expect(states[6].char.out == 8);
-    try expect(states[7].char.byte == 'c');
-    try expect(states[7].char.out == 8);
-    try expect(states[9].ranges.out == 11);
-    try expect(states[9].ranges.len == 1);
-    const digit_range = prog.ranges[states[9].ranges.start];
-    try expect(digit_range.from == '0');
-    try expect(digit_range.to == '9');
-    try expect(states[10].empty.out == 11);
-
-    try expect(states[13].alt2.left == 14);
-    try expect(states[13].alt2.right == 15);
-    try expect(states[14].char.byte == 'x');
-    try expect(states[14].char.out == 16);
-    try expect(states[15].char.byte == 'y');
-    try expect(states[15].char.out == 16);
-    try expect(states[17].char.byte == 'z');
-    try expect(states[17].char.out == 18);
-
-    try expect(prog.ranges.len >= states[9].ranges.start + states[9].ranges.len);
-}
-
-test "basic repetition" {
-    const a = testing.allocator;
-    const expect = testing.expect;
-
-    {
-        var prog = try Compiler.compile(a, "a?", .{});
-        defer prog.deinit();
-
-        const states = prog.states;
-        try expect(states.len == 5);
-        try expect(states[0].capture.out == 1);
-        try expect(states[1].alt2.left == 2);
-        try expect(states[1].alt2.right == 3);
-        try expect(states[2].char.byte == 'a');
-        try expect(states[2].char.out == 3);
-        try expect(states[3].capture.out == 4);
-    }
-
-    {
-        var prog = try Compiler.compile(a, "a*", .{});
-        defer prog.deinit();
-
-        const states = prog.states;
-        try expect(states.len == 5);
-        try expect(states[0].capture.out == 1);
-        try expect(states[1].alt2.left == 2);
-        try expect(states[1].alt2.right == 3);
-        try expect(states[2].char.byte == 'a');
-        try expect(states[2].char.out == 1);
-        try expect(states[3].capture.out == 4);
-    }
-
-    {
-        var prog = try Compiler.compile(a, "a+", .{});
-        defer prog.deinit();
-
-        const states = prog.states;
-        try expect(states.len == 5);
-        try expect(states[0].capture.out == 1);
-        try expect(states[1].char.byte == 'a');
-        try expect(states[1].char.out == 2);
-        try expect(states[2].alt2.left == 1);
-        try expect(states[2].alt2.right == 3);
-        try expect(states[3].capture.out == 4);
-    }
-
-    {
-        var prog = try Compiler.compile(a, "a??", .{});
-        defer prog.deinit();
-
-        const states = prog.states;
-        try expect(states.len == 5);
-        try expect(states[0].capture.out == 1);
-        try expect(states[1].alt2.left == 3);
-        try expect(states[1].alt2.right == 2);
-        try expect(states[2].char.byte == 'a');
-        try expect(states[2].char.out == 3);
-        try expect(states[3].capture.out == 4);
-    }
-
-    {
-        var prog = try Compiler.compile(a, "a*?", .{});
-        defer prog.deinit();
-
-        const states = prog.states;
-        try expect(states.len == 5);
-        try expect(states[0].capture.out == 1);
-        try expect(states[1].alt2.left == 3);
-        try expect(states[1].alt2.right == 2);
-        try expect(states[2].char.byte == 'a');
-        try expect(states[2].char.out == 1);
-        try expect(states[3].capture.out == 4);
-    }
-
-    {
-        var prog = try Compiler.compile(a, "a+?", .{});
-        defer prog.deinit();
-
-        const states = prog.states;
-        try expect(states.len == 5);
-        try expect(states[0].capture.out == 1);
-        try expect(states[1].char.byte == 'a');
-        try expect(states[1].char.out == 2);
-        try expect(states[2].alt2.left == 3);
-        try expect(states[2].alt2.right == 1);
-        try expect(states[3].capture.out == 4);
+    try testing.expectEqual(expected.len, actual.len);
+    for (expected, actual, 0..) |want, got, i| {
+        if (want.eql(got)) continue;
+        const want_dump = try g.dumpGraphAlloc(a, expected);
+        defer a.free(want_dump);
+        const got_dump = try g.dumpGraphAlloc(a, actual);
+        defer a.free(got_dump);
+        std.debug.print(
+            "graph mismatch for `{s}` at s{d}\nwant: {any}\ngot:  {any}\n\nwant graph:\n{s}\n\ngot graph:\n{s}\n",
+            .{ pattern, i, want, got, want_dump, got_dump },
+        );
+        return error.TestExpectedEqual;
     }
 }
+
+test "basic compile" {
+    try expectProgram("a((b|c)|\\d|)(x|y)z", &.{
+        g.capt(0, 1),
+        g.char('a', 2),
+        g.capt(2, 3),
+        g.alt(&.{ 4, 5, 6 }),
+        g.capt(4, 7),
+        g.ranges(&.{g.r('0', '9')}, false, 11),
+        g.empty(11),
+        g.alt2(8, 9),
+        g.char('b', 10),
+        g.char('c', 10),
+        g.capt(5, 11),
+        g.capt(3, 12),
+        g.capt(6, 13),
+        g.alt2(14, 15),
+        g.char('x', 16),
+        g.char('y', 16),
+        g.capt(7, 17),
+        g.char('z', 18),
+        g.capt(1, 19),
+        g.match(),
+    });
+}
+
+test "greedy repetition" {
+    try expectProgram("a?", &.{
+        g.capt(0, 1),
+        g.alt2(2, 3),
+        g.char('a', 3),
+        g.capt(1, 4),
+        g.match(),
+    });
+    try expectProgram("a*", &.{
+        g.capt(0, 1),
+        g.alt2(2, 3),
+        g.char('a', 1),
+        g.capt(1, 4),
+        g.match(),
+    });
+    try expectProgram("a+", &.{
+        g.capt(0, 1),
+        g.char('a', 2),
+        g.alt2(1, 3),
+        g.capt(1, 4),
+        g.match(),
+    });
+}
+
+test "lazy repetition" {
+    try expectProgram("a??", &.{
+        g.capt(0, 1),
+        g.alt2(2, 3),
+        g.capt(1, 4),
+        g.char('a', 2),
+        g.match(),
+    });
+    try expectProgram("a*?", &.{
+        g.capt(0, 1),
+        g.alt2(2, 3),
+        g.capt(1, 4),
+        g.char('a', 1),
+        g.match(),
+    });
+    try expectProgram("a+?", &.{
+        g.capt(0, 1),
+        g.char('a', 2),
+        g.alt2(3, 1),
+        g.capt(1, 4),
+        g.match(),
+    });
+}
+
 test "counted repetition" {
-    const a = testing.allocator;
-    const expect = testing.expect;
-    {
-        var prog = try Compiler.compile(a, "a{3}", .{});
-        defer prog.deinit();
-        const states = prog.states;
-        try expect(states.len == 6);
-        try expect(states[0].capture.out == 1);
-        try expect(states[1].char.byte == 'a');
-        try expect(states[1].char.out == 2);
-        try expect(states[2].char.byte == 'a');
-        try expect(states[2].char.out == 3);
-        try expect(states[3].char.byte == 'a');
-        try expect(states[3].char.out == 4);
-        try expect(states[4].capture.out == 5);
-    }
-    {
-        var prog = try Compiler.compile(a, "a{2,}", .{});
-        defer prog.deinit();
-        const states = prog.states;
-        try expect(states.len == 6);
-        try expect(states[0].capture.out == 1);
-        try expect(states[1].char.byte == 'a');
-        try expect(states[1].char.out == 2);
-        try expect(states[2].char.byte == 'a');
-        try expect(states[2].char.out == 3);
-        try expect(states[3].alt2.left == 2);
-        try expect(states[3].alt2.right == 4);
-        try expect(states[4].capture.out == 5);
-    }
-    {
-        var prog = try Compiler.compile(a, "a{2,}?", .{});
-        defer prog.deinit();
-        const states = prog.states;
-        try expect(states.len == 6);
-        try expect(states[0].capture.out == 1);
-        try expect(states[1].char.byte == 'a');
-        try expect(states[1].char.out == 2);
-        try expect(states[2].char.byte == 'a');
-        try expect(states[2].char.out == 3);
-        try expect(states[3].alt2.left == 4);
-        try expect(states[3].alt2.right == 2);
-        try expect(states[4].capture.out == 5);
-    }
-    {
-        var prog = try Compiler.compile(a, "a{2,4}", .{});
-        defer prog.deinit();
-        const states = prog.states;
-        try expect(states.len == 9);
-        try expect(states[0].capture.out == 1);
-        try expect(states[1].char.byte == 'a');
-        try expect(states[1].char.out == 2);
-        try expect(states[2].char.byte == 'a');
-        try expect(states[2].char.out == 3);
-        try expect(states[3].alt2.left == 4);
-        try expect(states[3].alt2.right == 7);
-        try expect(states[4].char.byte == 'a');
-        try expect(states[4].char.out == 5);
-        try expect(states[5].alt2.left == 6);
-        try expect(states[5].alt2.right == 7);
-        try expect(states[6].char.byte == 'a');
-        try expect(states[6].char.out == 7);
-        try expect(states[7].capture.out == 8);
-    }
-
-    {
-        var prog = try Compiler.compile(a, "a{2,4}?", .{});
-        defer prog.deinit();
-
-        const states = prog.states;
-        try expect(states.len == 9);
-        try expect(states[0].capture.out == 1);
-        try expect(states[1].char.byte == 'a');
-        try expect(states[1].char.out == 2);
-        try expect(states[2].char.byte == 'a');
-        try expect(states[2].char.out == 3);
-        try expect(states[3].alt2.left == 7);
-        try expect(states[3].alt2.right == 4);
-        try expect(states[4].char.byte == 'a');
-        try expect(states[4].char.out == 5);
-        try expect(states[5].alt2.left == 7);
-        try expect(states[5].alt2.right == 6);
-        try expect(states[6].char.byte == 'a');
-        try expect(states[6].char.out == 7);
-        try expect(states[7].capture.out == 8);
-    }
+    try expectProgram("a{3}", &.{
+        g.capt(0, 1),
+        g.char('a', 2),
+        g.char('a', 3),
+        g.char('a', 4),
+        g.capt(1, 5),
+        g.match(),
+    });
+    try expectProgram("a{2,}", &.{
+        g.capt(0, 1),
+        g.char('a', 2),
+        g.char('a', 3),
+        g.alt2(2, 4),
+        g.capt(1, 5),
+        g.match(),
+    });
+    try expectProgram("a{2,}?", &.{
+        g.capt(0, 1),
+        g.char('a', 2),
+        g.char('a', 3),
+        g.alt2(4, 2),
+        g.capt(1, 5),
+        g.match(),
+    });
+    try expectProgram("a{2,4}", &.{
+        g.capt(0, 1),
+        g.char('a', 2),
+        g.char('a', 3),
+        g.alt2(4, 5),
+        g.char('a', 6),
+        g.capt(1, 8),
+        g.alt2(7, 5),
+        g.char('a', 5),
+        g.match(),
+    });
+    try expectProgram("a{2,4}?", &.{
+        g.capt(0, 1),
+        g.char('a', 2),
+        g.char('a', 3),
+        g.alt2(4, 5),
+        g.capt(1, 6),
+        g.char('a', 7),
+        g.match(),
+        g.alt2(4, 8),
+        g.char('a', 4),
+    });
 }
 
 test "ascii class compile" {
-    const a = testing.allocator;
-    const expect = testing.expect;
-
-    {
-        var prog = try Compiler.compile(a, "[^[:digit:]]", .{});
-        defer prog.deinit();
-        const states = prog.states;
-        try expect(states[1].ranges.len == 2);
-        const ranges = prog.ranges[states[1].ranges.start..][0..states[1].ranges.len];
-        try expect(ranges[0].from == 0x00);
-        try expect(ranges[0].to == '/');
-        try expect(ranges[1].from == ':');
-        try expect(ranges[1].to == 0xFF);
-    }
-
-    {
-        var prog = try Compiler.compile(a, "[[:digit:][:^digit:]]", .{});
-        defer prog.deinit();
-        const states = prog.states;
-        try expect(states[1].ranges.len == 1);
-        const ranges = prog.ranges[states[1].ranges.start..][0..states[1].ranges.len];
-        try expect(ranges[0].from == 0x00);
-        try expect(ranges[0].to == 0xFF);
-    }
-
-    {
-        var prog = try Compiler.compile(a, "[^[:digit:][:^digit:]]", .{});
-        defer prog.deinit();
-        const states = prog.states;
-        try expect(std.meta.activeTag(states[1]) == .fail);
-    }
+    try expectProgram("[^[:digit:]]", &.{
+        g.capt(0, 1),
+        g.ranges(&.{ g.r(0x00, '/'), g.r(':', 0xFF) }, false, 2),
+        g.capt(1, 3),
+        g.match(),
+    });
+    try expectProgram("[[:digit:][:^digit:]]", &.{
+        g.capt(0, 1),
+        g.ranges(&.{g.r(0x00, 0xFF)}, false, 2),
+        g.capt(1, 3),
+        g.match(),
+    });
+    try expectProgram("[^[:digit:][:^digit:]]", &.{
+        g.capt(0, 1),
+        g.fail(),
+    });
 }
 
 test "assertions" {
-    const a = testing.allocator;
-    const expect = testing.expect;
-
-    {
-        var prog = try Compiler.compile(a, "^re$", .{});
-        defer prog.deinit();
-        const states = prog.states;
-        try expect(states.len == 7);
-        try expect(states[0].capture.out == 1);
-        try expect(states[1].assert.pred == .start_text);
-        try expect(states[1].assert.out == 2);
-        try expect(states[2].char.byte == 'r');
-        try expect(states[2].char.out == 3);
-        try expect(states[3].char.byte == 'e');
-        try expect(states[3].char.out == 4);
-        try expect(states[4].assert.pred == .end_text);
-        try expect(states[4].assert.out == 5);
-        try expect(states[5].capture.out == 6);
-        try expect(states[6] == .match);
-    }
-    {
-        var prog = try Compiler.compile(a, "\\b\\B", .{});
-        defer prog.deinit();
-        const states = prog.states;
-        try expect(states.len == 5);
-        try expect(states[0].capture.out == 1);
-        try expect(states[1].assert.pred == .word_boundary);
-        try expect(states[1].assert.out == 2);
-        try expect(states[2].assert.pred == .not_word_boundary);
-        try expect(states[2].assert.out == 3);
-        try expect(states[3].capture.out == 4);
-        try expect(states[4] == .match);
-    }
+    try expectProgram("^re$", &.{
+        g.capt(0, 1),
+        g.asrt(.start_text, 2),
+        g.char('r', 3),
+        g.char('e', 4),
+        g.asrt(.end_text, 5),
+        g.capt(1, 6),
+        g.match(),
+    });
+    try expectProgram("\\b\\B", &.{
+        g.capt(0, 1),
+        g.asrt(.word_boundary, 2),
+        g.asrt(.not_word_boundary, 3),
+        g.capt(1, 4),
+        g.match(),
+    });
 }
 
 const std = @import("std");
@@ -962,6 +853,8 @@ const Diagnostics = errors.Diagnostics;
 const Options = @import("../Options.zig");
 const Parser = @import("Parser.zig");
 const Program = @import("Program.zig");
+const g = @import("program_graph.zig");
 const State = Program.State;
 const StateId = Program.StateId;
 const ByteRange = Program.ByteRange;
+const Vertex = g.Vertex;
