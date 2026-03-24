@@ -89,6 +89,30 @@ test "assertions" {
     }
 }
 
+test "dot matches new line option" {
+    {
+        var re = try Regex.compile(gpa, ".", .{});
+        defer re.deinit();
+        try expect(re.match("a"));
+        try expect(!re.match("\n"));
+    }
+    {
+        var re = try Regex.compile(gpa, ".", .{ .syntax = .{ .dot_matches_new_line = true } });
+        defer re.deinit();
+        try expect(re.match("a"));
+        try expect(re.match("\n"));
+    }
+    {
+        var re = try Regex.compile(gpa, "a.b", .{});
+        defer re.deinit();
+        try expect(!re.match("a\nb"));
+    }
+    {
+        var re = try Regex.compile(gpa, "a.b", .{ .syntax = .{ .dot_matches_new_line = true } });
+        defer re.deinit();
+        try expect(re.match("a\nb"));
+    }
+}
 test "basic empty matches" {
     {
         var re = try Regex.compile(gpa, "|a", .{});

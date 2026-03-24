@@ -17,6 +17,9 @@ const Error = error{Compile} || Allocator.Error;
 
 const Options = struct {
     // Syntax
+    case_insensitive: bool,
+    dot_matches_new_line: bool,
+    swap_greed: bool,
     multi_line: bool,
     // Limits
     max_states: usize,
@@ -25,6 +28,9 @@ const Options = struct {
 
     fn fromTopLevel(options: TopLevelOptions) !Options {
         return .{
+            .case_insensitive = options.syntax.case_insensitive,
+            .dot_matches_new_line = options.syntax.dot_matches_new_line,
+            .swap_greed = options.syntax.swap_greed,
             .multi_line = options.syntax.multi_line,
             .max_states = try maxState(options.limits.max_states, options.diag),
             .diag = options.diag,
@@ -48,6 +54,7 @@ pub fn compile(gpa: Allocator, pattern: []const u8, options: TopLevelOptions) !P
     var parser: Parser = .init(gpa, pattern, .{
         .max_repeat = options.limits.max_repeat,
         .diag = options.diag,
+        .syntax = options.syntax,
     });
     var ast = try parser.parse();
     defer ast.deinit(gpa);
@@ -90,7 +97,9 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) Error!Frag {
             return c.state(.{ .char = .{ .byte = lit.char(), .out = 0 } });
         },
         .dot => {
-            return c.state(.{ .any = .{ .out = 0 } });
+            const any_kind: State.Any.Kind =
+                if (c.options.dot_matches_new_line) .all else .not_lf;
+            return c.state(.{ .any = .{ .kind = any_kind, .out = 0 } });
         },
         .class_perl => |cl| {
             const ranges = perlRanges(cl);
@@ -825,6 +834,39 @@ test "lazy repetition" {
         g.capt(1, 4),
         g.match(),
     });
+}
+
+test "swap greed option" {
+    try expectProgramWithOptions("a*", &.{
+        g.capt(0, 1),
+        g.alt2(2, 3),
+        g.capt(1, 4),
+        g.char('a', 1),
+        g.match(),
+    }, .{ .syntax = .{ .swap_greed = true } });
+
+    try expectProgramWithOptions("a*?", &.{
+        g.capt(0, 1),
+        g.alt2(2, 3),
+        g.char('a', 1),
+        g.capt(1, 4),
+        g.match(),
+    }, .{ .syntax = .{ .swap_greed = true } });
+}
+
+test "dot compile" {
+    try expectProgram(".", &.{
+        g.capt(0, 1),
+        g.any(.not_lf, 2),
+        g.capt(1, 3),
+        g.match(),
+    });
+    try expectProgramWithOptions(".", &.{
+        g.capt(0, 1),
+        g.any(.all, 2),
+        g.capt(1, 3),
+        g.match(),
+    }, .{ .syntax = .{ .dot_matches_new_line = true } });
 }
 
 test "counted repetition" {

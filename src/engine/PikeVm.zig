@@ -230,7 +230,12 @@ fn step(vm: *Vm, comptime mode: Mode, target: u8, at: Offset, input: Input) ?[]c
                 // !s.negated and in_range or s.negated and !in_range
                 if (in_range != s.negated) vm.epsilonClosure(mode, s.out, at + 1, input, slots);
             },
-            .any => |s| vm.epsilonClosure(mode, s.out, at + 1, input, slots),
+            .any => |s| switch (s.kind) {
+                .all => vm.epsilonClosure(mode, s.out, at + 1, input, slots),
+                .not_lf => if (target != '\n') {
+                    vm.epsilonClosure(mode, s.out, at + 1, input, slots);
+                },
+            },
             .empty, .capture, .assert, .alt, .alt2 => {
                 // current_states cannot hold these states because epsilon_closure()
                 // makes sure to only capture `matchers` states.

@@ -85,18 +85,6 @@ and Rust's [`regex` repo](https://github.com/rust-lang/regex)
 are frequently used as references, including but not limited to API design,
 testing strategy, and general project structure.
 
-## AI Assistance
-
-AI is used extensively in this project as a research and productivity tool: to
-understand regex concepts, locate relevant reference code in the Go and Rust
-codebases, help organize and plan the project, assist with code review, and
-generate some unit tests.
-
-None of the code in the main engine under `src/` is AI generated. That is an
-intentional choice for two reasons: 1) this project is a learning exercise for
-me, and 2) AI generated Zig code is often too quirky or too low-quality for the
-core implementation.
-
 ## License
 
 This project is available under either of:

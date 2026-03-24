@@ -1,7 +1,6 @@
 const Program = @import("../syntax/Program.zig");
 pub const Offset = Program.Offset;
 pub const StateId = Program.StateId;
-pub const Predicate = Program.Predicate;
 
 pub const Input = struct {
     haystack: []const u8,

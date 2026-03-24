@@ -57,15 +57,6 @@ pub const ByteRange = struct {
     }
 };
 
-pub const Predicate = enum {
-    start_text,
-    end_text,
-    start_line,
-    end_line,
-    word_boundary,
-    not_word_boundary,
-};
-
 pub const StateId = State.Id;
 
 pub const State = union(enum) {
@@ -79,8 +70,9 @@ pub const State = union(enum) {
     /// This state then stores the slice into the common array.
     ranges: struct { start: Index, len: Length, negated: bool, out: Id },
 
-    /// Consumes any input character and unconditionally transitions to the next state.
-    any: struct { out: Id },
+    /// Consumes any input character and conditionally transitions to the next state
+    /// based on `kind`.
+    any: Any,
 
     /// Unconditional epsilon transition that does not consume any input character.
     empty: struct { out: Id },
@@ -88,7 +80,7 @@ pub const State = union(enum) {
     /// Conditional epsilon transition that does not consume input, instead it makes a look-around
     /// assertion about the input. The predicate is evaluated during the process of "epsilon closure",
     /// which computes the next set of reachable states.
-    assert: struct { pred: Predicate, out: Id },
+    assert: Assertion,
 
     /// Unconditional epsilon transition that carries the capture slot information (2k or 2k+1).
     capture: struct { slot: Index, out: Id },
@@ -112,6 +104,30 @@ pub const State = union(enum) {
 
     /// Index into Program.states
     pub const Id = u32;
+
+    pub const Any = struct {
+        kind: Kind,
+        out: Id,
+
+        pub const Kind = enum {
+            all,
+            not_lf,
+        };
+    };
+
+    pub const Assertion = struct {
+        pred: Predicate,
+        out: Id,
+
+        pub const Predicate = enum {
+            start_text,
+            end_text,
+            start_line,
+            end_line,
+            word_boundary,
+            not_word_boundary,
+        };
+    };
 };
 
 pub fn dump(prog: Program, w: *std.Io.Writer) !void {
@@ -128,7 +144,7 @@ pub fn dump(prog: Program, w: *std.Io.Writer) !void {
                     .{ i, @tagName(state), pl.out, pl.start, pl.len },
                 );
             },
-            .any => |pl| try w.print("{d:>3} {s:<8}         out={d:<3}\n", .{ i, @tagName(state), pl.out }),
+            .any => |pl| try w.print("{d:>3} {s:<8}         out={d:<3}  kind={s}\n", .{ i, @tagName(state), pl.out, @tagName(pl.kind) }),
             .empty => |pl| try w.print("{d:>3} {s:<8}         out={d:<3}\n", .{ i, @tagName(state), pl.out }),
             .assert => |pl| try w.print("{d:>3} {s:<8}         out={d:<3}  pred={s}\n", .{ i, @tagName(state), pl.out, @tagName(pl.pred) }),
             .alt => |pl| {

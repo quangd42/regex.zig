@@ -6,10 +6,10 @@ diag: ?*Diagnostics = null,
 // meta: Meta,
 
 pub const Syntax = struct {
-    // case_insensitive: bool = false, // i
+    case_insensitive: bool = false, // i
     multi_line: bool = false, // m
-    // dot_matches_new_line: bool = false, // s
-    // ungreedy: bool = false, // U
+    dot_matches_new_line: bool = false, // s
+    swap_greed: bool = false, // U
 };
 
 pub const Limits = struct {

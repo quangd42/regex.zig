@@ -3,7 +3,7 @@ const testing = std.testing;
 const expect = testing.expect;
 
 const Program = @import("../syntax/Program.zig");
-const Predicate = Program.Predicate;
+const Predicate = Program.State.Assertion.Predicate;
 const Offset = Program.Offset;
 const ascii = @import("./ascii.zig");
 

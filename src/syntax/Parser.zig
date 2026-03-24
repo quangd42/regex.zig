@@ -10,6 +10,7 @@ nodes: ArrayList(Node) = .empty,
 stack: ArrayList(Frame) = .empty,
 
 options: Options,
+active_flags: SyntaxOptions,
 
 pub const Error = error{Parse} || Allocator.Error;
 
@@ -34,6 +35,7 @@ const Frame = union(enum) {
 pub const Options = struct {
     diag: ?*Diagnostics = null,
     max_repeat: u16 = 1000,
+    syntax: SyntaxOptions = .{},
 };
 
 pub fn init(gpa: Allocator, pattern: []const u8, options: Options) Parser {
@@ -42,6 +44,7 @@ pub fn init(gpa: Allocator, pattern: []const u8, options: Options) Parser {
         .offset = 0,
         .arena = .init(gpa),
         .options = options,
+        .active_flags = options.syntax,
     };
 }
 
@@ -245,7 +248,8 @@ fn parseRepetition(
                 break :b .{ .between = .{ .min = min.value, .max = max.value } };
             },
         };
-    const lazy = p.eatIf('?');
+    const has_lazy_suffix = p.eatIf('?');
+    const lazy = has_lazy_suffix != p.active_flags.swap_greed;
     const repeat_node = try p.addNode(.{
         .repetition = .{ .kind = rep_kind, .lazy = lazy, .node = last_concat_node },
     });
@@ -797,6 +801,7 @@ const NodeList = ArrayList(Node.Index);
 const errors = @import("../errors.zig");
 const Diagnostics = errors.Diagnostics;
 const Span = errors.Span;
+const SyntaxOptions = @import("../Options.zig").Syntax;
 
 const assert = std.debug.assert;
 const panic = std.debug.panic;
