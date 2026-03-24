@@ -113,6 +113,71 @@ test "dot matches new line option" {
         try expect(re.match("a\nb"));
     }
 }
+
+test "ignore case option" {
+    {
+        var re = try Regex.compile(gpa, "\\Aabc\\z", .{});
+        defer re.deinit();
+        try expect(!re.match("ABC"));
+    }
+    {
+        var re = try Regex.compile(gpa, "\\Aabc\\z", .{ .syntax = .{ .case_insensitive = true } });
+        defer re.deinit();
+        try expect(re.match("ABC"));
+    }
+    {
+        var re = try Regex.compile(gpa, "\\A[a-z]+\\z", .{});
+        defer re.deinit();
+        try expect(!re.match("AB"));
+    }
+    {
+        var re = try Regex.compile(gpa, "\\A[a-z]+\\z", .{ .syntax = .{ .case_insensitive = true } });
+        defer re.deinit();
+        try expect(re.match("AB"));
+    }
+    {
+        var re = try Regex.compile(gpa, "\\A[[:^lower:]]+\\z", .{});
+        defer re.deinit();
+        try expect(re.match("AZ"));
+    }
+    {
+        var re = try Regex.compile(gpa, "\\A[[:^lower:]]+\\z", .{ .syntax = .{ .case_insensitive = true } });
+        defer re.deinit();
+        try expect(!re.match("AZ"));
+    }
+    {
+        var re = try Regex.compile(gpa, "\\A\\w+\\z", .{ .syntax = .{ .case_insensitive = true } });
+        defer re.deinit();
+        try expect(re.match("aZ_0"));
+    }
+    {
+        var re = try Regex.compile(gpa, "\\A\\W+\\z", .{ .syntax = .{ .case_insensitive = true } });
+        defer re.deinit();
+        try expect(re.match("!@"));
+        try expect(!re.match("AZ"));
+    }
+    {
+        var re = try Regex.compile(gpa, "\\A[[:lower:]]+\\z", .{});
+        defer re.deinit();
+        try expect(!re.match("AB"));
+    }
+    {
+        var re = try Regex.compile(gpa, "\\A[[:lower:]]+\\z", .{ .syntax = .{ .case_insensitive = true } });
+        defer re.deinit();
+        try expect(re.match("AB"));
+    }
+    {
+        var re = try Regex.compile(gpa, "\\A[[:upper:]]+\\z", .{});
+        defer re.deinit();
+        try expect(!re.match("ab"));
+    }
+    {
+        var re = try Regex.compile(gpa, "\\A[[:upper:]]+\\z", .{ .syntax = .{ .case_insensitive = true } });
+        defer re.deinit();
+        try expect(re.match("ab"));
+    }
+}
+
 test "basic empty matches" {
     {
         var re = try Regex.compile(gpa, "|a", .{});

@@ -26,12 +26,17 @@ The current implementation includes:
 - a Pike VM execution engine
 - literals, concatenation, alternation
 - grouping and captures
-- repetition operators
-- Perl classes and bracket classes
+- repetition operators (`?`, `*`, `+`, `{m}`, `{m,}`, `{m,n}`) including lazy forms
+- Perl classes (`\d`, `\w`, `\s`) and bracket classes (including POSIX classes)
+- assertions and boundaries (`^`, `$`, `\A`, `\z`, `\b`, `\B`)
+- syntax options via compile config:
+  - case-insensitive (`i`)
+  - multi-line (`m`)
+  - dot-matches-new-line (`s`)
 - leftmost-first search semantics
 
-Support is still incomplete. The current syntax and backend matrix is tracked in
-[docs/supported-syntax.md](docs/supported-syntax.md).
+Support is ASCII only. The source-of-truth syntax/backend capability matrix is
+in [tests/harness/capabilities.zig](tests/harness/capabilities.zig).
 
 ## Using the Package
 
@@ -76,7 +81,7 @@ For more examples, see [src/main.zig](src/main.zig).
 
 ## Documentation
 
-See [docs/README.md](docs/README.md).
+See [docs/](docs/). It is pretty bare right now and will be updated soon.
 
 ## Acknowledgements
 

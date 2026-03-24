@@ -5,7 +5,6 @@ const Compiler = @This();
 
 states: ArrayList(State) = .empty,
 ranges: ArrayList(ByteRange) = .empty,
-scratch_ranges: ArrayList(ByteRange) = .empty,
 branches: ArrayList(StateId) = .empty,
 arena: std.heap.ArenaAllocator,
 options: Options,
@@ -94,25 +93,14 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) Error!Frag {
     const node = ast.nodes[node_index];
     switch (node) {
         .literal => |lit| {
-            return c.state(.{ .char = .{ .byte = lit.char(), .out = 0 } });
+            return c.literal(lit);
         },
         .dot => {
             const any_kind: State.Any.Kind =
                 if (c.options.dot_matches_new_line) .all else .not_lf;
             return c.state(.{ .any = .{ .kind = any_kind, .out = 0 } });
         },
-        .class_perl => |cl| {
-            const ranges = perlRanges(cl);
-            const start = c.ranges.items.len;
-            try c.ranges.ensureUnusedCapacity(a, ranges.len);
-            c.ranges.appendSliceAssumeCapacity(ranges);
-            return c.state(.{ .ranges = .{
-                .start = @intCast(start),
-                .len = @intCast(ranges.len),
-                .negated = cl.negated,
-                .out = 0,
-            } });
-        },
+        .class_perl => |cl| return c.namedClass(perlRanges(cl), cl.negated),
         .class => |cl| return c.class(cl),
         .group => |gr| {
             const group_index = gr.index orelse return try c.compileNode(ast, gr.node);
@@ -361,69 +349,221 @@ fn empty(c: *Compiler) !Frag {
     return c.state(.{ .empty = .{ .out = 0 } });
 }
 
-fn class(c: *Compiler, cls: Ast.Class) !Frag {
+fn literal(c: *Compiler, lit: Ast.Literal) !Frag {
+    const byte = lit.char();
+    if (!c.options.case_insensitive) {
+        return c.state(.{ .char = .{ .byte = byte, .out = 0 } });
+    }
+    const folded = asciiSimpleFold(byte) orelse
+        return c.state(.{ .char = .{ .byte = byte, .out = 0 } });
+
     const a = c.arena.allocator();
     const start = c.ranges.items.len;
+    try c.ranges.ensureUnusedCapacity(a, 2);
+    const first = @min(byte, folded);
+    const second = @max(byte, folded);
+    c.ranges.appendAssumeCapacity(.{ .from = first, .to = first });
+    c.ranges.appendAssumeCapacity(.{ .from = second, .to = second });
+    return c.state(.{ .ranges = .{
+        .start = @intCast(start),
+        .len = 2,
+        .negated = false,
+        .out = 0,
+    } });
+}
 
-    // Calculate upper bound of this class and reserve memory for worst case.
-    var reserve: usize = 0;
-    for (cls.items) |item| {
-        reserve += itemRangeUpperBound(item);
-    }
-    // Negation of normalized ranges can add at most one extra range.
-    if (cls.negated) reserve += reserve + 1;
-    try c.ranges.ensureTotalCapacity(a, c.ranges.items.len + reserve);
+/// Compiles a top-level named class (for example `\w`) into a matcher fragment.
+/// Non-negated inputs defer normalization in `appendNamedClass`, so this function
+/// performs that final normalize pass before emitting the state.
+fn namedClass(c: *Compiler, source: []const ByteRange, negated: bool) !Frag {
+    const start = c.ranges.items.len;
+    const len = try c.appendNamedClass(source, negated) orelse c.normalizeTailRanges(start);
+    return c.finishTailClass(start, len);
+}
 
+/// Compiles a bracket class. It appends all items to Compiler.ranges, then normalizes
+/// them (the class tail segment) once at the class boundary and negates the result if necessary.
+fn class(c: *Compiler, cls: Ast.Class) !Frag {
+    const start = c.ranges.items.len;
     for (cls.items) |item| {
-        switch (item) {
-            .literal => |lit| c.ranges.appendAssumeCapacity(.{
-                .from = lit.char(),
-                .to = lit.char(),
-            }),
-            .range => |range| c.ranges.appendAssumeCapacity(.{
-                .from = range.from.char(),
-                .to = range.to.char(),
-            }),
-            .perl => |perl| {
-                const ranges = perlRanges(perl);
-                if (!perl.negated) {
-                    c.ranges.appendSliceAssumeCapacity(ranges);
-                } else {
-                    const negated_ranges = try c.negateRanges(ranges);
-                    c.ranges.appendSliceAssumeCapacity(negated_ranges);
-                }
-            },
-            .ascii => |ascii| {
-                const ranges = asciiRanges(ascii);
-                if (!ascii.negated) {
-                    c.ranges.appendSliceAssumeCapacity(ranges);
-                } else {
-                    const negated_ranges = try c.negateRanges(ranges);
-                    c.ranges.appendSliceAssumeCapacity(negated_ranges);
-                }
-            },
-        }
+        try c.appendClassItem(item);
     }
 
-    var len = normalizeRanges(c.ranges.items[start..]);
+    const len = if (cls.negated) blk: {
+        try c.ranges.ensureUnusedCapacity(c.arena.allocator(), 1);
+        break :blk c.negateTailRanges(start);
+    } else c.normalizeTailRanges(start);
+    return c.finishTailClass(start, len);
+}
+
+/// Appends a class item into the current class tail segment.
+/// Literal/range items always append raw/folded ranges, while named items may
+/// normalize immediately only when negated.
+fn appendClassItem(c: *Compiler, item: Ast.Class.Item) !void {
+    const a = c.arena.allocator();
+    switch (item) {
+        .literal => |lit| {
+            try c.ranges.ensureUnusedCapacity(a, c.classItemUpperBound(item));
+            c.foldRangeAssumeCapacity(lit.char(), lit.char());
+        },
+        .range => |range| {
+            try c.ranges.ensureUnusedCapacity(a, c.classItemUpperBound(item));
+            c.foldRangeAssumeCapacity(
+                range.from.char(),
+                range.to.char(),
+            );
+        },
+        .perl => |perl| {
+            // Only negated named items are normalized. Non-negated items
+            // are left for the containing class's final normalize pass.
+            _ = try c.appendNamedClass(perlRanges(perl), perl.negated);
+        },
+        .ascii => |ascii| {
+            // Only negated named items are normalized. Non-negated items
+            // are left for the containing class's final normalize pass.
+            _ = try c.appendNamedClass(asciiRanges(ascii), ascii.negated);
+        },
+    }
+}
+
+/// Appends a named class into the current class tail segment.
+///
+/// Returns:
+/// - `null`: when `negated == false`; this function only appends/folds and leaves
+///   normalization to the caller so it can be done with other class items.
+/// - `len`: the appended tail is already normalized and negated, and `len` is the
+///   final logical segment length.
+fn appendNamedClass(c: *Compiler, source: []const ByteRange, negated: bool) !?usize {
+    const start = c.ranges.items.len;
+    const needed_capacity = c.namedClassUpperBound(source.len, negated);
+    try c.ranges.ensureUnusedCapacity(c.arena.allocator(), needed_capacity);
+
+    for (source) |range| {
+        c.foldRangeAssumeCapacity(range.from, range.to);
+    }
+
+    if (!negated) return null;
+    return c.negateTailRanges(start);
+}
+
+/// ASCII-only folding via range overlap arithmetic.
+fn foldRangeAssumeCapacity(
+    c: *Compiler,
+    from: u8,
+    to: u8,
+) void {
+    c.ranges.appendAssumeCapacity(.{ .from = from, .to = to });
+    if (!c.options.case_insensitive) return;
+    if (to < 'A' or from > 'z') return;
+
+    if (intersectByteRange(from, to, 'A', 'Z')) |upper| {
+        c.ranges.appendAssumeCapacity(.{
+            .from = upper.from + 32,
+            .to = upper.to + 32,
+        });
+    }
+    if (intersectByteRange(from, to, 'a', 'z')) |lower| {
+        c.ranges.appendAssumeCapacity(.{
+            .from = lower.from - 32,
+            .to = lower.to - 32,
+        });
+    }
+}
+
+fn intersectByteRange(from: u8, to: u8, overlap_from: u8, overlap_to: u8) ?ByteRange {
+    if (to < overlap_from or from > overlap_to) return null;
+    return .{
+        .from = @max(from, overlap_from),
+        .to = @min(to, overlap_to),
+    };
+}
+
+fn asciiSimpleFold(byte: u8) ?u8 {
+    return switch (byte) {
+        'A'...'Z' => byte + 32,
+        'a'...'z' => byte - 32,
+        else => null,
+    };
+}
+
+/// Returns a safe upper bound for ranges appended by one class item.
+/// Used to reserve per-item capacity before `appendAssumeCapacity` calls.
+fn classItemUpperBound(c: *Compiler, item: Ast.Class.Item) usize {
+    return switch (item) {
+        .literal, .range => if (c.options.case_insensitive) 3 else 1,
+        .perl => |perl| c.namedClassUpperBound(perlRanges(perl).len, perl.negated),
+        .ascii => |ascii| c.namedClassUpperBound(asciiRanges(ascii).len, ascii.negated),
+    };
+}
+
+/// Returns a safe upper bound for a named class expansion in current mode.
+/// Case folding can expand each source range up to 3 ranges, and negation can
+/// add at most one additional range.
+fn namedClassUpperBound(c: *Compiler, source_len: usize, negated: bool) usize {
+    var n = if (c.options.case_insensitive) source_len * 3 else source_len;
+    if (negated) n += 1;
+    return n;
+}
+
+/// Normalizes `ranges[start..]` in place (sort + merge) and truncates stale tail.
+/// Returns the logical normalized length for the segment.
+fn normalizeTailRanges(c: *Compiler, start: usize) usize {
+    const len = normalizeRanges(c.ranges.items[start..]);
     c.ranges.shrinkRetainingCapacity(start + len);
-    if (cls.negated) {
-        const negated = try c.negateRanges(c.ranges.items[start..]);
-        // c.ranges capacity was reserved above for worst-case above (+1 range),
-        // so this is safe if negated.len > len. If negated.len < len, this does
-        // the job of shrinkRetainingCapacity().
-        c.ranges.items.len = start + negated.len;
-        @memcpy(c.ranges.items[start..], negated);
-        len = negated.len;
+    return len;
+}
+
+/// Normalize + negate the ranges at `Compiler.ranges[start..]` in place.
+/// Returns the new logical tail length.
+///
+/// Negation can produce at most one more range than its normalized input.
+/// The caller must have reserved this spare slot in capacity before calling.
+fn negateTailRanges(c: *Compiler, start: usize) usize {
+    const len = c.normalizeTailRanges(start);
+
+    assert(c.ranges.capacity >= start + len + 1);
+    c.ranges.items.len = start + len + 1;
+
+    const max_byte = std.math.maxInt(u8);
+
+    var write_i: usize = start;
+    var next_from: u8 = 0;
+
+    for (start..start + len) |read_i| {
+        const range = c.ranges.items[read_i];
+        if (next_from < range.from) {
+            c.ranges.items[write_i] = .{
+                .from = next_from,
+                .to = range.from - 1,
+            };
+            write_i += 1;
+        }
+        if (range.to == max_byte) break;
+        next_from = range.to + 1;
+    } else {
+        c.ranges.items[write_i] = .{
+            .from = next_from,
+            .to = max_byte,
+        };
+        write_i += 1;
     }
 
-    // This might happen when class items cancel each other, e.g. [^\d\D]
+    const new_len = write_i - start;
+    c.ranges.shrinkRetainingCapacity(start + new_len);
+    return new_len;
+}
+
+/// Finalizes a class tail segment into the most specific matcher state:
+/// `fail` for empty, `char` for singleton byte, otherwise `ranges`.
+fn finishTailClass(c: *Compiler, start: usize, len: usize) !Frag {
+    c.ranges.shrinkRetainingCapacity(start + len);
+
     if (len == 0) {
+        c.ranges.shrinkRetainingCapacity(start);
         return c.state(.fail);
     }
 
     const ranges = c.ranges.items[start..][0..len];
-    // When the class amounts to a single char, we'll just emit a State.char.
     if (ranges.len == 1 and ranges[0].from == ranges[0].to) {
         c.ranges.shrinkRetainingCapacity(start);
         return c.state(.{ .char = .{ .byte = ranges[0].from, .out = 0 } });
@@ -435,20 +575,6 @@ fn class(c: *Compiler, cls: Ast.Class) !Frag {
         .negated = false,
         .out = 0,
     } });
-}
-
-fn itemRangeUpperBound(item: Ast.Class.Item) usize {
-    return switch (item) {
-        .literal, .range => 1,
-        .perl => |perl| {
-            const ranges = perlRanges(perl);
-            return if (perl.negated) ranges.len + 1 else ranges.len;
-        },
-        .ascii => |ascii| {
-            const ranges = asciiRanges(ascii);
-            return if (ascii.negated) ranges.len + 1 else ranges.len;
-        },
-    };
 }
 
 /// Helper to generate []const ByteRange from short hand tuples, such as in
@@ -579,32 +705,6 @@ fn lessRange(_: void, lhs: ByteRange, rhs: ByteRange) bool {
     if (lhs.from < rhs.from) return true;
     if (lhs.from > rhs.from) return false;
     return lhs.to > rhs.to;
-}
-
-/// Computes the negation of normalized `source` ranges into `c.scratch_ranges`
-/// and returns the immutable result slice.
-fn negateRanges(c: *Compiler, source: []const ByteRange) ![]const ByteRange {
-    const scratch = &c.scratch_ranges;
-    scratch.clearRetainingCapacity();
-    try scratch.ensureTotalCapacity(c.arena.allocator(), source.len + 1);
-
-    const byte_max = std.math.maxInt(u8);
-    var next_from: u8 = 0;
-    for (source) |range| {
-        if (next_from < range.from) {
-            scratch.appendAssumeCapacity(.{
-                .from = next_from,
-                .to = range.from - 1,
-            });
-        }
-        if (range.to == byte_max) break;
-        next_from = range.to + 1;
-    } else scratch.appendAssumeCapacity(.{
-        .from = next_from,
-        .to = byte_max,
-    });
-
-    return scratch.items;
 }
 
 /// A compiled fragment returned by compileNode.
@@ -867,6 +967,39 @@ test "dot compile" {
         g.capt(1, 3),
         g.match(),
     }, .{ .syntax = .{ .dot_matches_new_line = true } });
+}
+
+test "case insensitive compile" {
+    try expectProgramWithOptions("a", &.{
+        g.capt(0, 1),
+        g.ranges(&.{ g.r('A', 'A'), g.r('a', 'a') }, false, 2),
+        g.capt(1, 3),
+        g.match(),
+    }, .{ .syntax = .{ .case_insensitive = true } });
+
+    try expectProgramWithOptions("1", &.{
+        g.capt(0, 1),
+        g.char('1', 2),
+        g.capt(1, 3),
+        g.match(),
+    }, .{ .syntax = .{ .case_insensitive = true } });
+
+    try expectProgramWithOptions("[A-Z]", &.{
+        g.capt(0, 1),
+        g.ranges(&.{ g.r('A', 'Z'), g.r('a', 'z') }, false, 2),
+        g.capt(1, 3),
+        g.match(),
+    }, .{ .syntax = .{ .case_insensitive = true } });
+
+    try expectProgramWithOptions("\\A[[:^lower:]]+\\z", &.{
+        g.capt(0, 1),
+        g.asrt(.start_text, 2),
+        g.ranges(&.{ g.r(0x00, '@'), g.r('[', '`'), g.r('{', 0xFF) }, false, 3),
+        g.alt2(2, 4),
+        g.asrt(.end_text, 5),
+        g.capt(1, 6),
+        g.match(),
+    }, .{ .syntax = .{ .case_insensitive = true } });
 }
 
 test "counted repetition" {
