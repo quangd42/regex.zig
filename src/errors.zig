@@ -16,6 +16,7 @@ pub const Diagnostics = union(enum) {
         repeat_count_empty,
         invalid_repeat_size,
         invalid_repeat_count_format,
+        unsupported_feature,
     };
 
     pub const Parse = struct {

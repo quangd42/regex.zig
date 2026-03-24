@@ -236,7 +236,7 @@ pub const cap_backend_map = std.EnumArray(Capability, CapBackendMapEntry).init(.
 
     // Groups and captures.
     .capture_group                  = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .noncapture_group               = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .noncapture_group               = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
     .named_capture_group            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
 
     // Repetition.

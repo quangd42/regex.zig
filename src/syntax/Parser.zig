@@ -21,7 +21,7 @@ const Frame = union(enum) {
         /// The actual value of the prev concat.
         value: *NodeList,
         /// Capture group index assigned at the opening `(`.
-        group_index: u16,
+        group_index: ?u16,
         /// Span of the opening `(`, mostly used for unclosed-group diagnostics.
         opener_span: Span,
     },
@@ -120,13 +120,20 @@ fn pushAlt(p: *Parser, cur_concat: *NodeList) !*NodeList {
 fn pushGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
     assert(p.prev() == '(');
     const a = p.arena.allocator();
+    const opener_span = p.prevSpan();
+    var group_flags: GroupFlags = .{};
+    if (p.eatIf('?')) group_flags = try p.parseGroupFlags(opener_span);
     // shelf cur_concat and create new concat to parse group
     try p.stack.append(a, .{ .concat = .{
         .value = cur_concat,
-        .group_index = p.group_count,
-        .opener_span = p.prevSpan(),
+        .opener_span = opener_span,
+        .group_index = b: {
+            if (group_flags.non_capturing) break :b null;
+            const group_index = p.group_count;
+            p.group_count += 1;
+            break :b group_index;
+        },
     } });
-    p.group_count += 1;
     return p.createNodeList();
 }
 
@@ -194,6 +201,19 @@ fn popGroupAtEnd(p: *Parser, cur_concat: *NodeList) !void {
 }
 
 // --- parser funcs ---
+
+const GroupFlags = struct {
+    non_capturing: bool = false,
+};
+
+fn parseGroupFlags(p: *Parser, open_paren: Span) !GroupFlags {
+    assert(p.prev() == '?');
+    const c = p.eat() orelse return p.errAt(.group_not_closed, open_paren);
+    switch (c) {
+        ':' => return .{ .non_capturing = true },
+        else => return p.err(.unsupported_feature),
+    }
+}
 
 fn parseRepetition(
     p: *Parser,
@@ -525,6 +545,7 @@ test "parse to string round trip" {
 
         // group & alternation
         "a(b|c|\\d)",
+        "a(?:b|c)",
         "\\d|a|\\s",
         "a|", // empty alt
         "|a",
@@ -577,6 +598,16 @@ test "parse to []byte round trip" {
     for (cases) |tc| {
         try expectParseOk(gpa, tc.pattern, tc.expected);
     }
+}
+
+test "group count excludes non-capturing groups" {
+    const gpa = testing.allocator;
+
+    var parser: Parser = .init(gpa, "(?:a)(b)(?:c)", .{});
+    var ast = try parser.parse();
+    defer ast.deinit(gpa);
+
+    try testing.expectEqual(@as(u16, 2), ast.group_count);
 }
 
 test "parse errors" {
@@ -681,10 +712,40 @@ test "parse errors" {
             .end = 1,
         },
         .{
+            .pattern = "(?",
+            .tag = .group_not_closed,
+            .start = 0,
+            .end = 1,
+        },
+        .{
             .pattern = "(ab",
             .tag = .group_not_closed,
             .start = 0,
             .end = 1,
+        },
+        .{
+            .pattern = "(?:",
+            .tag = .group_not_closed,
+            .start = 0,
+            .end = 1,
+        },
+        .{
+            .pattern = "(?:ab",
+            .tag = .group_not_closed,
+            .start = 0,
+            .end = 1,
+        },
+        .{
+            .pattern = "(?=a)",
+            .tag = .unsupported_feature,
+            .start = 2,
+            .end = 3,
+        },
+        .{
+            .pattern = "(?i)",
+            .tag = .unsupported_feature,
+            .start = 2,
+            .end = 3,
         },
         .{
             .pattern = "[z-a]",

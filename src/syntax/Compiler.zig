@@ -106,7 +106,8 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) Error!Frag {
         },
         .class => |cl| return c.class(cl),
         .group => |gr| {
-            const slot_2k = @as(u32, gr.index) * 2;
+            const group_index = gr.index orelse return try c.compileNode(ast, gr.node);
+            const slot_2k = @as(u32, group_index) * 2;
             const frag = c.cat(try c.cap(slot_2k), try c.compileNode(ast, gr.node));
             return c.cat(frag, try c.cap(slot_2k + 1));
         },
@@ -761,6 +762,19 @@ test "basic compile" {
         g.capt(7, 17),
         g.char('z', 18),
         g.capt(1, 19),
+        g.match(),
+    });
+}
+
+test "non-capturing group" {
+    // does not emit capture states
+    try expectProgram("(?:a)(b)", &.{
+        g.capt(0, 1),
+        g.char('a', 2),
+        g.capt(2, 3),
+        g.char('b', 4),
+        g.capt(3, 5),
+        g.capt(1, 6),
         g.match(),
     });
 }

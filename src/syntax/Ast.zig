@@ -127,7 +127,7 @@ pub const Class = struct {
 
 pub const Group = struct {
     node: Node.Index,
-    index: u16,
+    index: ?u16,
 };
 
 pub const Alternation = struct {
@@ -193,6 +193,7 @@ fn formatNode(self: @This(), writer: *std.Io.Writer, index: Node.Index) std.Io.W
         .class => |cls| try formatClass(writer, cls),
         .group => |group| {
             try writer.printAsciiChar('(', .{});
+            if (group.index == null) try writer.writeAll("?:");
             try self.formatNode(writer, group.node);
             try writer.printAsciiChar(')', .{});
         },
