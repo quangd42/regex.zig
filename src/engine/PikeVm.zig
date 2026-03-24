@@ -92,16 +92,24 @@ fn search(vm: *Vm, comptime mode: Mode, input: Input) ?[]const Offset {
     var slots_for_match: ?[]const Offset = null;
     for (input.haystack[start..], start..) |c, i| {
         const offset: u32 = @intCast(i);
-        if (vm.next_states.len() == 0) break;
-        if (vm.step(mode, c, offset, input)) |slots| {
-            slots_for_match = slots;
-            if (mode == .none) break;
+        // vm.next_states are threads ready to consume input at offset
+        if (vm.next_states.len() > 0) {
+            if (vm.step(mode, c, offset, input)) |slots| {
+                slots_for_match = slots;
+                if (mode == .none) break;
+            }
         }
-        // If there is no match yet, start the matching process from the top
-        // with the next character in the input. This effectively rewrites
-        // compiled `pattern` into `.*pattern`.
+        // vm.next_states are now threads for input at offset + 1
         if (slots_for_match == null and !input.anchored) {
+            // In unanchored mode, if there is no match yet, we reseed at each byte,
+            // to continue looking for a match later in input. This effectively
+            // rewrites compiled `pattern` into `.*pattern`, and allows assertions
+            // like `$` to match even when there is no thread left.
             vm.seedStartState(mode, offset + 1, input);
+        } else if (vm.next_states.len() == 0) {
+            // When in anchored mode or there is already a match, then the search is
+            // finished as soon as all thread dies, no reseed.
+            break;
         }
     } else if (vm.hasMatch()) |slots| slots_for_match = slots;
 
