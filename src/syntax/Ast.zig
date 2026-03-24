@@ -160,6 +160,10 @@ pub const Assertion = enum {
     start_line_or_text,
     /// `$`
     end_line_or_text,
+    /// `\A`
+    start_text,
+    /// `\z`
+    end_text,
     /// `\b`
     word_boundary,
     /// `\B`
@@ -220,6 +224,8 @@ fn formatNode(self: @This(), writer: *std.Io.Writer, index: Node.Index) std.Io.W
             switch (a) {
                 .start_line_or_text => try writer.printAsciiChar('^', .{}),
                 .end_line_or_text => try writer.printAsciiChar('$', .{}),
+                .start_text => try writer.print("\\A", .{}),
+                .end_text => try writer.print("\\z", .{}),
                 .word_boundary => try writer.print("\\b", .{}),
                 .not_word_boundary => try writer.print("\\B", .{}),
             }

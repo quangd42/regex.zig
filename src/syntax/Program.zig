@@ -128,7 +128,7 @@ pub fn dump(prog: Program, w: *std.Io.Writer) !void {
             },
             .any => |pl| try w.print("{d:>3} {s:<8}         out={d:<3}\n", .{ i, @tagName(state), pl.out }),
             .empty => |pl| try w.print("{d:>3} {s:<8}         out={d:<3}\n", .{ i, @tagName(state), pl.out }),
-            .assert => |pl| try w.print("{d:>3} {s:<8}         out={d:<3}  cond={s}\n", .{ i, @tagName(state), pl.out, @tagName(pl.pred) }),
+            .assert => |pl| try w.print("{d:>3} {s:<8}         out={d:<3}  pred={s}\n", .{ i, @tagName(state), pl.out, @tagName(pl.pred) }),
             .alt => |pl| {
                 try w.print(
                     "{d:>3} {s:<8}                  start={d:<3} len={d:<3}",

@@ -247,7 +247,7 @@ pub const cap_backend_map = std.EnumArray(Capability, CapBackendMapEntry).init(.
     .rep_min                        = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
     .rep_range                      = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
     .rep_lazy                       = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .rep_possessive                 = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .rep_possessive                 = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false }, // not supported
 
     // Character classes.
     .class_simple                   = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
@@ -259,10 +259,10 @@ pub const cap_backend_map = std.EnumArray(Capability, CapBackendMapEntry).init(.
     .class_unicode_script_or_block  = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
 
     // Assertions and boundaries.
-    .anchor_line_start              = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .anchor_line_end                = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .anchor_text_start              = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .anchor_text_end                = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .anchor_line_start              = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .anchor_line_end                = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .anchor_text_start              = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .anchor_text_end                = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
     .word_boundary                  = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
     .not_word_boundary              = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
     .word_boundary_start            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },

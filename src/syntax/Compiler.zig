@@ -182,6 +182,8 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) Error!Frag {
                 .pred = switch (asrt) {
                     .start_line_or_text => .start_text,
                     .end_line_or_text => .end_text,
+                    .start_text => .start_text,
+                    .end_text => .end_text,
                     .word_boundary => .word_boundary,
                     .not_word_boundary => .not_word_boundary,
                 },
@@ -867,6 +869,15 @@ test "ascii class compile" {
 
 test "assertions" {
     try expectProgram("^re$", &.{
+        g.capt(0, 1),
+        g.asrt(.start_text, 2),
+        g.char('r', 3),
+        g.char('e', 4),
+        g.asrt(.end_text, 5),
+        g.capt(1, 6),
+        g.match(),
+    });
+    try expectProgram("\\Are\\z", &.{
         g.capt(0, 1),
         g.asrt(.start_text, 2),
         g.char('r', 3),

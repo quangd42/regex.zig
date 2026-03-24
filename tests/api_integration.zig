@@ -51,7 +51,7 @@ test "captures buffer api" {
     try expectEqual(null, caps.groups[2]);
 }
 
-test "word and not-word boundary semantics" {
+test "assertions" {
     {
         var re = try Regex.compile(gpa, "foo\\b", .{});
         defer re.deinit();
@@ -63,6 +63,29 @@ test "word and not-word boundary semantics" {
         defer re.deinit();
         try expect(re.match("!a"));
         try expect(!re.match("a!"));
+    }
+    {
+        var re = try Regex.compile(gpa, "\\Aab", .{});
+        defer re.deinit();
+        try expect(re.match("ab"));
+        try expect(!re.match("zab"));
+        try expectEqual(Match{ .start = 0, .end = 2 }, re.find("ab").?);
+        try expectEqual(null, re.find("zab"));
+    }
+    {
+        var re = try Regex.compile(gpa, "ab\\z", .{});
+        defer re.deinit();
+        try expect(re.match("zab"));
+        try expect(!re.match("abz"));
+        try expectEqual(Match{ .start = 1, .end = 3 }, re.find("zab").?);
+        try expectEqual(null, re.find("abz"));
+    }
+    {
+        var re = try Regex.compile(gpa, "\\Aab\\z", .{});
+        defer re.deinit();
+        try expect(re.match("ab"));
+        try expect(!re.match("zab"));
+        try expect(!re.match("abz"));
     }
 }
 

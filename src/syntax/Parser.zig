@@ -380,6 +380,8 @@ fn parseEscapeLiteral(p: *Parser, c: u8) !?Ast.Literal {
 
 fn parseAssertion(c: u8) ?Ast.Assertion {
     return switch (c) {
+        'A' => .start_text,
+        'z' => .end_text,
         'b' => .word_boundary,
         'B' => .not_word_boundary,
         else => null,
@@ -551,6 +553,7 @@ test "parse to string round trip" {
 
         // assertions
         "^re$",
+        "\\A\\z",
         "\\b\\B",
     };
 
@@ -630,7 +633,7 @@ test "parse errors" {
             .aux_span = .{ .start = 2, .end = 3 },
         },
         .{
-            .pattern = "\\z0B",
+            .pattern = "\\Z0B",
             .tag = .invalid_escape,
             .start = 1,
             .end = 2,
