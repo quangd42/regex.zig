@@ -49,10 +49,9 @@ pub fn execute(
     }
 
     var diag: Regex.Diagnostics = undefined;
-    const prog = Compiler.compile(gpa, tc.pattern, .{
-        .diagnostics = &diag,
-        .limits = tc.options.limits,
-    }) catch |err| {
+    var compile_opts = tc.options;
+    compile_opts.diag = &diag;
+    const prog = Compiler.compile(gpa, tc.pattern, compile_opts) catch |err| {
         try printCaseContext(stderr, tc);
         try stderr.print("  error: {s}\n", .{@errorName(err)});
         switch (err) {

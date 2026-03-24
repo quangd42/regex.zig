@@ -281,7 +281,7 @@ pub const cap_backend_map = std.EnumArray(Capability, CapBackendMapEntry).init(.
 
     // Flags and parser modes.
     .ignore_case                    = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .multi_line                     = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .multi_line                     = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
     .dot_matches_new_line           = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
     .swap_greed                     = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
     .crlf_mode                      = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },

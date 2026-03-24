@@ -88,7 +88,7 @@ test "usage: error with diagnostics" {
     {
         const pattern = "[z-a]";
         var diag: Diagnostics = undefined;
-        var re = Regex.compile(gpa, pattern, .{ .diagnostics = &diag }) catch {
+        var re = Regex.compile(gpa, pattern, .{ .diag = &diag }) catch {
             switch (diag) {
                 .parse => |parse_diag| {
                     try expectEqual(.invalid_class_range, parse_diag.err);
@@ -106,8 +106,8 @@ test "usage: error with diagnostics" {
         const pattern = "ab";
         var diag: Diagnostics = undefined;
         var re = Regex.compile(gpa, pattern, .{
-            .limits = .{ .states_count = 4 },
-            .diagnostics = &diag,
+            .limits = .{ .max_states = 4 },
+            .diag = &diag,
         }) catch {
             switch (diag) {
                 .compile => |compile_diag| switch (compile_diag) {

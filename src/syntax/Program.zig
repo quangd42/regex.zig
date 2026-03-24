@@ -60,6 +60,8 @@ pub const ByteRange = struct {
 pub const Predicate = enum {
     start_text,
     end_text,
+    start_line,
+    end_line,
     word_boundary,
     not_word_boundary,
 };

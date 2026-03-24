@@ -8,32 +8,52 @@ ranges: ArrayList(ByteRange) = .empty,
 scratch_ranges: ArrayList(ByteRange) = .empty,
 branches: ArrayList(StateId) = .empty,
 arena: std.heap.ArenaAllocator,
-options: struct {
-    diagnostics: ?*Diagnostics,
-    state_limit: usize,
-},
+options: Options,
 
 /// See `Program.matcher_count`.
 matcher_count: u32 = 0,
 
 const Error = error{Compile} || Allocator.Error;
 
+const Options = struct {
+    // Syntax
+    multi_line: bool,
+    // Limits
+    max_states: usize,
+    // Diag
+    diag: ?*Diagnostics,
+
+    fn fromTopLevel(options: TopLevelOptions) !Options {
+        return .{
+            .multi_line = options.syntax.multi_line,
+            .max_states = try maxState(options.limits.max_states, options.diag),
+            .diag = options.diag,
+        };
+    }
+
+    fn maxState(configured: ?usize, diag: ?*Diagnostics) error{Compile}!usize {
+        const max = PatchList.Ptr.max;
+        const limit = configured orelse return max;
+        if (limit <= max) return limit;
+        if (diag) |d| {
+            d.* = .{ .compile = .{ .invalid_state_limit = limit } };
+        }
+        return error.Compile;
+    }
+};
+
 /// Resources allocated are owned by Program after compilation is done, and caller is expected
 /// to call Program.deinit() to free them.
-pub fn compile(gpa: Allocator, pattern: []const u8, options: Options) !Program {
-    const state_limit = try resolveStateLimit(options.limits.states_count, options.diagnostics);
+pub fn compile(gpa: Allocator, pattern: []const u8, options: TopLevelOptions) !Program {
     var parser: Parser = .init(gpa, pattern, .{
-        .diagnostics = options.diagnostics,
-        .max_repeat = options.limits.repeat_size,
+        .max_repeat = options.limits.max_repeat,
+        .diag = options.diag,
     });
     var ast = try parser.parse();
     defer ast.deinit(gpa);
     var compiler: Compiler = .{
         .arena = .init(gpa),
-        .options = .{
-            .diagnostics = options.diagnostics,
-            .state_limit = state_limit,
-        },
+        .options = try .fromTopLevel(options),
     };
     errdefer compiler.arena.deinit();
     return compiler.compileAst(ast);
@@ -180,8 +200,8 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) Error!Frag {
         .assertion => |asrt| {
             return c.state(.{ .assert = .{
                 .pred = switch (asrt) {
-                    .start_line_or_text => .start_text,
-                    .end_line_or_text => .end_text,
+                    .start_line_or_text => if (c.options.multi_line) .start_line else .start_text,
+                    .end_line_or_text => if (c.options.multi_line) .end_line else .end_text,
                     .start_text => .start_text,
                     .end_text => .end_text,
                     .word_boundary => .word_boundary,
@@ -194,24 +214,14 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) Error!Frag {
 }
 
 fn err(c: *Compiler, compile_diag: Diagnostics.Compile) error{Compile} {
-    if (c.options.diagnostics) |diagnostics| {
+    if (c.options.diag) |diagnostics| {
         diagnostics.* = .{ .compile = compile_diag };
     }
     return error.Compile;
 }
 
-fn resolveStateLimit(configured: ?usize, diagnostics: ?*Diagnostics) error{Compile}!usize {
-    const max = PatchList.Ptr.max;
-    const limit = configured orelse return max;
-    if (limit <= max) return limit;
-    if (diagnostics) |diag| {
-        diag.* = .{ .compile = .{ .invalid_state_limit = limit } };
-    }
-    return error.Compile;
-}
-
 fn checkStateLimit(c: *Compiler) error{Compile}!void {
-    const limit = c.options.state_limit;
+    const limit = c.options.max_states;
     if (c.states.items.len < limit) return;
     return c.err(.{ .too_many_states = .{
         .limit = limit,
@@ -704,8 +714,12 @@ const PatchList = struct {
 const testing = std.testing;
 
 fn expectProgram(pattern: []const u8, expected: []const Vertex) !void {
+    return expectProgramWithOptions(pattern, expected, .{});
+}
+
+fn expectProgramWithOptions(pattern: []const u8, expected: []const Vertex, opts: TopLevelOptions) !void {
     const a = testing.allocator;
-    var prog = try Compiler.compile(a, pattern, .{});
+    var prog = try Compiler.compile(a, pattern, opts);
     defer prog.deinit();
     const graph = try g.graphView(prog, a);
     defer graph.deinit(a);
@@ -893,6 +907,15 @@ test "assertions" {
         g.capt(1, 4),
         g.match(),
     });
+    try expectProgramWithOptions("^re$", &.{
+        g.capt(0, 1),
+        g.asrt(.start_line, 2),
+        g.char('r', 3),
+        g.char('e', 4),
+        g.asrt(.end_line, 5),
+        g.capt(1, 6),
+        g.match(),
+    }, .{ .syntax = .{ .multi_line = true } });
 }
 
 const std = @import("std");
@@ -903,7 +926,7 @@ const assert = std.debug.assert;
 const Ast = @import("Ast.zig");
 const errors = @import("../errors.zig");
 const Diagnostics = errors.Diagnostics;
-const Options = @import("../Options.zig");
+const TopLevelOptions = @import("../Options.zig");
 const Parser = @import("Parser.zig");
 const Program = @import("Program.zig");
 const g = @import("program_graph.zig");

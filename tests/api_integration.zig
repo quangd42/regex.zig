@@ -145,7 +145,7 @@ test "diag parse err" {
 
     var diag: Diagnostics = undefined;
     try expectError(error.Parse, Regex.compile(gpa, pattern, .{
-        .diagnostics = &diag,
+        .diag = &diag,
     }));
 
     switch (diag) {
@@ -169,8 +169,8 @@ test "diag repeat limit" {
 
     var diag: Diagnostics = undefined;
     try expectError(error.Parse, Regex.compile(gpa, pattern, .{
-        .limits = .{ .repeat_size = 3 },
-        .diagnostics = &diag,
+        .limits = .{ .max_repeat = 3 },
+        .diag = &diag,
     }));
 
     switch (diag) {
@@ -189,8 +189,8 @@ test "diag state limit" {
 
     var diag: Diagnostics = undefined;
     try expectError(error.Compile, Regex.compile(gpa, pattern, .{
-        .limits = .{ .states_count = 4 },
-        .diagnostics = &diag,
+        .limits = .{ .max_states = 4 },
+        .diag = &diag,
     }));
 
     switch (diag) {
@@ -207,15 +207,15 @@ test "diag state limit" {
 
 test "state limit no diag" {
     try expectError(error.Compile, Regex.compile(gpa, "ab", .{
-        .limits = .{ .states_count = 4 },
+        .limits = .{ .max_states = 4 },
     }));
 }
 
 test "diag invalid state limit" {
     var diag: Diagnostics = undefined;
     try expectError(error.Compile, Regex.compile(gpa, "ab", .{
-        .limits = .{ .states_count = std.math.maxInt(usize) },
-        .diagnostics = &diag,
+        .limits = .{ .max_states = std.math.maxInt(usize) },
+        .diag = &diag,
     }));
 
     switch (diag) {

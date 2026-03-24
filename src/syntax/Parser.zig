@@ -32,8 +32,8 @@ const Frame = union(enum) {
 };
 
 pub const Options = struct {
+    diag: ?*Diagnostics = null,
     max_repeat: u16 = 1000,
-    diagnostics: ?*Diagnostics = null,
 };
 
 pub fn init(gpa: Allocator, pattern: []const u8, options: Options) Parser {
@@ -409,7 +409,7 @@ fn errAt(p: *Parser, tag: Diagnostics.ParseError, span: Span) error{Parse} {
 fn errWithAuxAt(p: *Parser, tag: Diagnostics.ParseError, span: Span, aux_span: ?Span) error{Parse} {
     assert(span.isValidFor(p.pattern.len));
     if (aux_span) |as| assert(as.isValidFor(p.pattern.len));
-    if (p.options.diagnostics) |diagnostics| {
+    if (p.options.diag) |diagnostics| {
         diagnostics.* = Diagnostics.fromParse(tag, span, aux_span);
     }
     return error.Parse;
@@ -500,7 +500,7 @@ fn expectParseError(
     },
 ) !void {
     var diagnostics: Diagnostics = undefined;
-    var parser: Parser = .init(gpa, pattern, .{ .diagnostics = &diagnostics });
+    var parser: Parser = .init(gpa, pattern, .{ .diag = &diagnostics });
     try testing.expectError(error.Parse, parser.parse());
     switch (diagnostics) {
         .parse => |diag| {
