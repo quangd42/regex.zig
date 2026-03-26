@@ -538,6 +538,7 @@ test "fowler/basic/basic51" {
             .{ .start = 0, .end = 4 },
             .{ .start = 2, .end = 4 },
         },
+        .options = .{ .syntax = .{ .case_insensitive = true } },
         .requires = caps.requires(.{ .alternation = true, .rep_zero_or_more = true, .ignore_case = true, .input_anchored = true }),
     });
 }

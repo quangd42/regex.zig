@@ -231,9 +231,13 @@ fn writeCaseLiteral(
     var requires = inferPatternCaps(tc.regex);
     if (tc.anchored) requires.insert(.input_anchored);
     if (tc.unescape) requires.insert(.case_unescape);
-    // TODO: Pass down Regex.Options from case directives (e.g. case-insensitive)
-    // once Regex.Options is fully incorporated in the harness path.
-    if (tc.@"case-insensitive") requires.insert(.ignore_case);
+    if (tc.@"case-insensitive") {
+        try w.print(
+            "{s}    .options = .{{ .syntax = .{{ .case_insensitive = true }} }},\n",
+            .{indent},
+        );
+        requires.insert(.ignore_case);
+    }
     if (tc.@"match-limit" != 1) requires.insert(.case_match_limit);
     if (tc.compiles) |compiles| {
         requires.insert(if (compiles) .case_compiles_true else .case_compiles_false);

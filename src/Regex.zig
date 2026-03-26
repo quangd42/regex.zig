@@ -81,6 +81,14 @@ test "usage: basic compile, match, find" {
         try expect(re.match("5"));
         try expect(re.match("a"));
     }
+    {
+        var re = try Regex.compile(gpa, "abc", .{
+            .syntax = .{ .case_insensitive = true },
+        });
+        defer re.deinit();
+        try expect(re.match("ABC"));
+        try expectEqual(Match{ .start = 2, .end = 5 }, re.find("zzAbCzz").?);
+    }
 }
 
 test "usage: error with diagnostics" {

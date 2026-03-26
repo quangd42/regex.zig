@@ -1,7 +1,7 @@
 # regex.zig
 
 [![CI](https://github.com/quangd42/regex.zig/actions/workflows/ci.yml/badge.svg)](https://github.com/quangd42/regex.zig/actions/workflows/ci.yml)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 `regex.zig` provides a native regular expression engine for Zig in the RE2
 family. It guarantees worst-case `O(m * n)` search time, where `m` is
@@ -29,10 +29,11 @@ The current implementation includes:
 - repetition operators (`?`, `*`, `+`, `{m}`, `{m,}`, `{m,n}`) including lazy forms
 - Perl classes (`\d`, `\w`, `\s`) and bracket classes (including POSIX classes)
 - assertions and boundaries (`^`, `$`, `\A`, `\z`, `\b`, `\B`)
-- syntax options via compile config:
+- global flags via compile options (`Regex.compile(..., .{ .syntax = ... })`):
   - case-insensitive (`i`)
   - multi-line (`m`)
   - dot-matches-new-line (`s`)
+  - swap-greed (`U`)
 - leftmost-first search semantics
 
 Support is ASCII only. The source-of-truth syntax/backend capability matrix is
@@ -59,6 +60,28 @@ exe.root_module.addImport("regex", regex_dep.module("regex"));
 
 The package name is `regex`, as declared in [build.zig.zon](build.zig.zon).
 
+## Choosing the Query API
+
+The three main search APIs do different amounts of work:
+
+- `match()` answers only "does this regex match anywhere?" and is the cheapest query.
+- `find()` returns the start/end of the leftmost match and tracks only group 0.
+- `findCaptures()` returns subgroup locations and does the full capture-slot work.
+
+If you only need a boolean, prefer `match()`. If you only need the match span,
+prefer `find()`. Use `findCaptures()` only when you actually need subgroup
+locations.
+
+`findCaptures()` also has two usage styles:
+
+- `findCaptures(..., buffer)` lets the caller provide reusable storage and avoid
+  per-search allocation.
+- `findCapturesAlloc()` is the convenience form that allocates the buffer for the
+- result captures.
+
+For unanchored searches, the engine also uses a small literal-prefix fast path
+when the pattern begins with a required literal byte.
+
 ## Example
 
 ```zig
@@ -77,11 +100,35 @@ pub fn main() !void {
 }
 ```
 
+Inline flag syntax is not supported yet. For the currently supported global
+flags, compile options let you set the equivalent top-level defaults you would
+otherwise express with a leading inline flag such as `(?imsU)`:
+
+```zig
+const std = @import("std");
+const Regex = @import("regex");
+
+pub fn main() !void {
+    const gpa = std.heap.page_allocator;
+
+    var re = try Regex.compile(gpa, "abc", .{
+        .syntax = .{ .case_insensitive = true },
+    });
+    defer re.deinit();
+
+    std.debug.assert(re.match("ABC"));
+}
+```
+
 For more examples, see [src/main.zig](src/main.zig).
 
 ## Documentation
 
-See [docs/](docs/). It is pretty bare right now and will be updated soon.
+See:
+
+- [docs/optimizations.md](docs/optimizations.md) for current compile-time and runtime optimizations
+- [docs/supported-syntax.md](docs/supported-syntax.md) for the syntax support entrypoint
+- [docs/testing.md](docs/testing.md) for the corpus/testing setup
 
 ## Acknowledgements
 

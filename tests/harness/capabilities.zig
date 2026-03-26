@@ -280,10 +280,10 @@ pub const cap_backend_map = std.EnumArray(Capability, CapBackendMapEntry).init(.
     .escape_literal_mode            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
 
     // Flags and parser modes.
-    .ignore_case                    = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .ignore_case                    = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
     .multi_line                     = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .dot_matches_new_line           = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .swap_greed                     = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .dot_matches_new_line           = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .swap_greed                     = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
     .crlf_mode                      = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
     .inline_flags_global            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
     .inline_flags_scoped            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },

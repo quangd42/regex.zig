@@ -80,7 +80,6 @@
         "src",
         "docs",
         "README.md",
-        "LICENSE",
         "LICENSE-APACHE",
         "LICENSE-MIT",
     },
