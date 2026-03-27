@@ -27,7 +27,7 @@ arena: std.heap.ArenaAllocator,
 
 pub fn init(gpa: Allocator, prog: Program) !Vm {
     const state_count: u32 = @intCast(prog.states.len);
-    const slot_count: u32 = @as(u32, prog.group_count) * 2;
+    const slot_count: u32 = @as(u32, prog.capture_count) * 2;
     var arena = std.heap.ArenaAllocator.init(gpa);
     const a = arena.allocator();
     return .{
@@ -55,22 +55,10 @@ pub fn find(vm: *Vm, input: Input) ?Match {
     return buildMatch(slots);
 }
 
-pub fn findCaptures(vm: *Vm, input: Input, buffer: []?Match) ?Captures {
+pub fn findCaptures(vm: *Vm, input: Input, buffer: []?Match) !?Captures {
+    if (buffer.len < vm.prog.capture_count) return error.BufferTooSmall;
     const slots = vm.search(.full, input) orelse return null;
     return vm.buildCaptures(slots, buffer);
-}
-
-pub fn findCapturesAlloc(vm: *Vm, gpa: Allocator, input: Input) !?Captures {
-    const buffer = try gpa.alloc(?Match, vm.capturesLen());
-    if (vm.findCaptures(input, buffer)) |captures| {
-        return captures;
-    }
-    gpa.free(buffer);
-    return null;
-}
-
-pub fn capturesLen(vm: *Vm) usize {
-    return vm.prog.group_count;
 }
 
 /// Controls how much capture slot work is done during a search.
@@ -285,14 +273,14 @@ fn buildMatch(slots: []const Offset) ?Match {
 /// Fills the buffer with given capture slots and wraps it as Captures.
 /// Asserts that the buffer is big enough to contain matched slots.
 fn buildCaptures(vm: *Vm, slots: []const Offset, buffer: []?Match) ?Captures {
-    const group_count = vm.prog.group_count;
+    const group_count = vm.prog.capture_count;
     assert(buffer.len >= group_count);
     assert(slots.len >= group_count * 2);
     assert(buildMatch(slots) != null);
     for (0..group_count) |i| {
         buffer[i] = buildMatch(slots[i * 2 ..]);
     }
-    return .{ .groups = buffer[0..group_count] };
+    return .{ .items = buffer[0..group_count] };
 }
 
 const Offset = engine.Offset;

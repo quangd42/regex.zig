@@ -11,7 +11,6 @@ pub fn main() !void {
     try demoMatchAndFind(gpa);
     try demoCharacterClasses(gpa);
     try demoCaptures(gpa);
-    try demoCapturesAlloc(gpa);
 }
 
 fn demoMatchAndFind(gpa: std.mem.Allocator) !void {
@@ -50,35 +49,25 @@ fn demoCaptures(gpa: std.mem.Allocator) !void {
     var re = try Regex.compile(gpa, pattern, .{});
     defer re.deinit();
 
-    var buffer: [4]?Match = undefined;
-    const captures = re.findCaptures(haystack, &buffer);
+    const capture_count = re.captureCount();
+    var stack_buf: [8]?Match = undefined;
 
-    std.debug.print("captures with caller buffer\n", .{});
+    std.debug.print("captures with caller-managed buffer\n", .{});
     std.debug.print("  pattern:  {s}\n", .{pattern});
     std.debug.print("  haystack: {s}\n", .{haystack});
-    printCaptures(captures, haystack);
-    std.debug.print("\n", .{});
-}
+    std.debug.print("  captureCount(): {}\n", .{capture_count});
 
-fn demoCapturesAlloc(gpa: std.mem.Allocator) !void {
-    const pattern = "item-(\\d\\d\\d)";
-    const haystack = "sku=item-042";
-
-    var re = try Regex.compile(gpa, pattern, .{});
-    defer re.deinit();
-
-    std.debug.print("captures with heap allocation\n", .{});
-    std.debug.print("  pattern:  {s}\n", .{pattern});
-    std.debug.print("  haystack: {s}\n", .{haystack});
-    std.debug.print("  capturesLen(): {}\n", .{re.capturesLen()});
-
-    var captures = (try re.findCapturesAlloc(gpa, haystack)) orelse {
-        std.debug.print("  no match\n\n", .{});
-        return;
-    };
-    defer captures.deinit(gpa);
-
-    printCaptures(captures, haystack);
+    if (capture_count <= stack_buf.len) {
+        const captures = try re.findCaptures(haystack, stack_buf[0..capture_count]);
+        std.debug.print("  storage:  stack\n", .{});
+        printCaptures(captures, haystack);
+    } else {
+        const heap_buf = try gpa.alloc(?Match, capture_count);
+        defer gpa.free(heap_buf);
+        const captures = try re.findCaptures(haystack, heap_buf);
+        std.debug.print("  storage:  heap\n", .{});
+        printCaptures(captures, haystack);
+    }
     std.debug.print("\n", .{});
 }
 
@@ -100,7 +89,7 @@ fn printCaptures(result: ?Captures, haystack: []const u8) void {
         return;
     };
 
-    for (captures.groups, 0..) |group, i| {
+    for (captures.items, 0..) |group, i| {
         if (group) |m| {
             std.debug.print(
                 "  group {}: {s} [{}, {})\n",

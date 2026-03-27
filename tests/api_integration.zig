@@ -37,18 +37,18 @@ test "captures buffer api" {
     var re = try Regex.compile(gpa, "(ab)(d)?", .{});
     defer re.deinit();
 
-    try expectEqual(3, re.capturesLen());
+    try expectEqual(3, re.captureCount());
 
     var buffer = [_]?Match{null} ** 3;
-    const maybe_caps = re.findCaptures("zabx", &buffer);
+    const maybe_caps = try re.findCaptures("zabx", &buffer);
     try expect(maybe_caps != null);
 
     const caps = maybe_caps.?;
     const ab_match: ?Match = .{ .start = 1, .end = 3 };
-    try expectEqual(3, caps.groups.len);
-    try expectEqual(ab_match, caps.groups[0]);
-    try expectEqual(ab_match, caps.groups[1]);
-    try expectEqual(null, caps.groups[2]);
+    try expectEqual(3, caps.items.len);
+    try expectEqual(ab_match, caps.items[0]);
+    try expectEqual(ab_match, caps.items[1]);
+    try expectEqual(null, caps.items[2]);
 }
 
 test "assertions" {

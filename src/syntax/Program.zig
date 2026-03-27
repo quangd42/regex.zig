@@ -18,7 +18,7 @@ matcher_count: u32,
 /// The number of capturing groups in the nfa, including the default group for the full match.
 /// It is sized as u16 so that the slot count = group_count * 2 will fit into an u32. This is
 /// an implementation limit.
-group_count: u16,
+capture_count: u16,
 
 pub fn deinit(p: *Program) void {
     p.arena.deinit();

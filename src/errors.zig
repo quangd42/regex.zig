@@ -42,7 +42,7 @@ pub const Diagnostics = union(enum) {
     }
 };
 
-/// Byte offsets into input
+/// Byte offsets into pattern slice.
 pub const Span = struct {
     start: usize,
     end: usize, // exclusive

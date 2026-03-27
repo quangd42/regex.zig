@@ -83,7 +83,7 @@ fn compileAst(c: *Compiler, ast: Ast) Error!Program {
         .ranges = try c.ranges.toOwnedSlice(a),
         .branches = try c.branches.toOwnedSlice(a),
         .arena = c.arena,
-        .group_count = ast.group_count,
+        .capture_count = ast.group_count,
         .matcher_count = c.matcher_count,
     };
 }
