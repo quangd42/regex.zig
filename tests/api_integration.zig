@@ -33,7 +33,7 @@ test "basic end-to-end" {
     }
 }
 
-test "captures buffer api" {
+test "captures" {
     var re = try Regex.compile(gpa, "(ab)(d)?", .{});
     defer re.deinit();
 
@@ -49,6 +49,133 @@ test "captures buffer api" {
     try expectEqual(ab_match, caps.items[0]);
     try expectEqual(ab_match, caps.items[1]);
     try expectEqual(null, caps.items[2]);
+}
+
+test "non capturing groups" {
+    {
+        var re = try Regex.compile(gpa, "(?i)Re", .{});
+        defer re.deinit();
+        try expect(re.match("rE"));
+        try expect(re.match("re"));
+    }
+    {
+        var re = try Regex.compile(gpa, "(?i:Re)", .{});
+        defer re.deinit();
+        try expect(re.match("rE"));
+        try expect(re.match("re"));
+    }
+    {
+        var re = try Regex.compile(gpa, "(?i)(?-i:Re)", .{});
+        defer re.deinit();
+        try expect(!re.match("rE"));
+        try expect(!re.match("re"));
+    }
+    {
+        var re = try Regex.compile(gpa, "(?m:^re$)", .{});
+        defer re.deinit();
+        try expect(re.match("ab\nre\ncd"));
+        try expect(re.match("re"));
+    }
+    {
+        var re = try Regex.compile(gpa, "(?sm:^re.l)", .{});
+        defer re.deinit();
+        try expect(re.match("ab\nre\nld"));
+        try expect(re.match("real"));
+    }
+    {
+        var re = try Regex.compile(gpa, "(?U:^re+)", .{});
+        defer re.deinit();
+        try expectEqual(Match{ .start = 0, .end = 2 }, re.find("reeee"));
+    }
+}
+
+test "flag options and scoping" {
+    {
+        var re = try Regex.compile(gpa, "^ab$", .{
+            .syntax = .{ .multi_line = true },
+        });
+        defer re.deinit();
+        try expectEqual(Match{ .start = 3, .end = 5 }, re.find("zz\nab\nyy").?);
+    }
+    {
+        var re = try Regex.compile(gpa, "a+", .{
+            .syntax = .{ .swap_greed = true },
+        });
+        defer re.deinit();
+        try expectEqual(Match{ .start = 0, .end = 1 }, re.find("aa").?);
+    }
+    {
+        var re = try Regex.compile(gpa, "a+?", .{
+            .syntax = .{ .swap_greed = true },
+        });
+        defer re.deinit();
+        try expectEqual(Match{ .start = 0, .end = 2 }, re.find("aa").?);
+    }
+    {
+        var re = try Regex.compile(gpa, "a(?-i)b", .{
+            .syntax = .{ .case_insensitive = true },
+        });
+        defer re.deinit();
+        try expect(re.match("Ab"));
+        try expect(!re.match("AB"));
+    }
+    {
+        var re = try Regex.compile(gpa, ".(?-s:.)", .{
+            .syntax = .{ .dot_matches_new_line = true },
+        });
+        defer re.deinit();
+        try expect(re.match("\na"));
+        try expect(!re.match("\n\n"));
+    }
+    {
+        var re = try Regex.compile(gpa, "a(?i)b", .{});
+        defer re.deinit();
+        try expect(re.match("aB"));
+        try expect(!re.match("AB"));
+    }
+    {
+        var re = try Regex.compile(gpa, "(?i)(?-i:ab)C", .{});
+        defer re.deinit();
+        try expect(re.match("abC"));
+        try expect(re.match("abc"));
+        try expect(!re.match("AbC"));
+    }
+    {
+        var re = try Regex.compile(gpa, "(?-m:^ab$)|^cd$", .{
+            .syntax = .{ .multi_line = true },
+        });
+        defer re.deinit();
+        try expectEqual(Match{ .start = 3, .end = 5 }, re.find("ab\ncd").?);
+    }
+    {
+        var re = try Regex.compile(gpa, "(?s-i:a.)", .{
+            .syntax = .{ .case_insensitive = true },
+        });
+        defer re.deinit();
+        try expect(re.match("a\n"));
+        try expect(!re.match("A\n"));
+    }
+}
+
+test "captures through flagged groups" {
+    {
+        var re = try Regex.compile(gpa, "(?i:(ab))c", .{});
+        defer re.deinit();
+
+        var buffer = [_]?Match{null} ** 2;
+        const caps = (try re.findCaptures("ABc", &buffer)).?;
+        try expectEqual(Match{ .start = 0, .end = 3 }, caps.items[0].?);
+        try expectEqual(Match{ .start = 0, .end = 2 }, caps.items[1].?);
+    }
+    {
+        var re = try Regex.compile(gpa, "(?i:(?:x(ab)))c", .{});
+        defer re.deinit();
+
+        var buffer = [_]?Match{null} ** 2;
+        const caps = (try re.findCaptures("XABc", &buffer)).?;
+        try expectEqual(Match{ .start = 0, .end = 4 }, caps.items[0].?);
+        try expectEqual(Match{ .start = 1, .end = 3 }, caps.items[1].?);
+    }
 }
 
 test "assertions" {
@@ -239,7 +366,7 @@ test "diag parse err" {
 
     switch (diag) {
         .parse => |parse_diag| {
-            try expectEqual(.invalid_class_range, parse_diag.err);
+            try expectEqual(.class_range_invalid, parse_diag.err);
             try expectEqual(Span{ .start = 3, .end = 4 }, parse_diag.span);
             try expectEqual(Span{ .start = 1, .end = 2 }, parse_diag.aux_span.?);
             try expect(parse_diag.span.isValidFor(pattern.len));
@@ -264,7 +391,7 @@ test "diag repeat limit" {
 
     switch (diag) {
         .parse => |parse_diag| {
-            try expectEqual(.invalid_repeat_size, parse_diag.err);
+            try expectEqual(.repeat_size_invalid, parse_diag.err);
             try expectEqual(Span{ .start = 2, .end = 3 }, parse_diag.span);
             try expectEqual(null, parse_diag.aux_span);
             try expect(parse_diag.span.isValidFor(pattern.len));

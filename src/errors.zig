@@ -4,18 +4,22 @@ pub const Diagnostics = union(enum) {
 
     /// Parser errors surfaced to callers.
     pub const ParseError = enum {
-        invalid_escape,
+        escape_invalid,
         escape_at_eof,
         class_not_closed,
-        invalid_class_range,
-        invalid_ascii_class,
-        unexpected_group_close,
+        class_range_invalid,
+        class_ascii_invalid,
+        group_close_unexpected,
         group_not_closed,
+        flag_duplicated,
+        flag_disable_op_duplicated,
+        flag_disable_op_dangling,
+        flag_unsupported,
         repeat_count_not_closed,
-        missing_repeat_argument, // '*', '+', '?' as first item in pattern
+        repeat_argument_missing, // '*', '+', '?' as first item in pattern
         repeat_count_empty,
-        invalid_repeat_size,
-        invalid_repeat_count_format,
+        repeat_size_invalid,
+        repeat_count_format_invalid,
         unsupported_feature,
     };
 

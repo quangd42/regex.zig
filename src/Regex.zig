@@ -124,7 +124,7 @@ test "usage: error with diagnostics" {
         var re = Regex.compile(gpa, pattern, .{ .diag = &diag }) catch {
             switch (diag) {
                 .parse => |parse_diag| {
-                    try expectEqual(.invalid_class_range, parse_diag.err);
+                    try expectEqual(.class_range_invalid, parse_diag.err);
                     try expectEqual(Span{ .start = 3, .end = 4 }, parse_diag.span);
                     try expectEqual(Span{ .start = 1, .end = 2 }, parse_diag.aux_span.?);
                 },

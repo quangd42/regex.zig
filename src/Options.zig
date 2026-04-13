@@ -5,11 +5,17 @@ limits: Limits = .{},
 diag: ?*Diagnostics = null,
 // meta: Meta,
 
+/// Initial syntax flags for the regex. Equivalent to leading flags e.g. `(?imsU)`.
+/// Inline flags override these defaults.
 pub const Syntax = struct {
-    case_insensitive: bool = false, // i
-    multi_line: bool = false, // m
-    dot_matches_new_line: bool = false, // s
-    swap_greed: bool = false, // U
+    /// `i`: match ASCII letters case-insensitively.
+    case_insensitive: bool = false,
+    /// `m`: make `^` and `$` match line boundaries as well as text boundaries.
+    multi_line: bool = false,
+    /// `s`: make `.` match `\n`.
+    dot_matches_new_line: bool = false,
+    /// `U`: invert the default greediness of repetition operators.
+    swap_greed: bool = false,
 };
 
 pub const Limits = struct {

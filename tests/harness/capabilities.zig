@@ -1,6 +1,117 @@
 const std = @import("std");
 const Backend = @import("adapters.zig").Backend;
 
+/// Single source-of-truth capability x backend matrix.
+///
+/// Each capability row must explicitly set support for every backend.
+/// See capability description below.
+pub const cap_backend_map = std.EnumArray(Capability, CapBackendMapEntry).init(.{
+    // zig fmt: off
+    // Core syntax.
+    .literal                        = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .escaped_literal                = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .dot                            = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .concat                         = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .alternation                    = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+
+    // Groups and captures.
+    .capture_group                  = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .noncapture_group               = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .named_capture_group            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+
+    // Repetition.
+    .rep_zero_or_one                = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .rep_zero_or_more               = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .rep_one_or_more                = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .rep_exact                      = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .rep_min                        = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .rep_range                      = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .rep_lazy                       = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .rep_possessive                 = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false }, // not supported
+
+    // Character classes.
+    .class_simple                   = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .class_range                    = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .class_negated                  = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .class_posix                    = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .class_perl                     = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .class_unicode_property         = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .class_unicode_script_or_block  = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+
+    // Assertions and boundaries.
+    .anchor_line_start              = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .anchor_line_end                = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .anchor_text_start              = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .anchor_text_end                = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .word_boundary                  = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .not_word_boundary              = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .word_boundary_start            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .word_boundary_end              = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .word_boundary_start_half       = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .word_boundary_end_half         = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+
+    // Escapes.
+    .escape_c_style                 = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .escape_hex_byte                = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .escape_hex_braced              = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .escape_unicode_short           = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .escape_unicode_long            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .escape_octal                   = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .escape_literal_mode            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+
+    // Flags and parser modes.
+    .ignore_case                    = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .multi_line                     = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .dot_matches_new_line           = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .swap_greed                     = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .crlf_mode                      = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .inline_flags_global            = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .inline_flags_scoped            = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .inline_flags_toggle            = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .unicode_mode                   = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .utf8_mode                      = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .line_terminator_override       = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+
+    // Search and match semantics.
+    .search_leftmost                = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .search_earliest                = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .search_overlapping             = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .match_kind_leftmost_first      = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .match_kind_all                 = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .match_kind_leftmost_longest    = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .empty_match_no_split_codepoint = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+
+    // Input controls.
+    .input_anchored                 = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .input_bounds                   = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .input_bytes                    = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .input_utf8_text                = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+
+    // API surface.
+    .api_is_match                   = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .api_find                       = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .api_captures                   = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .api_find_iter                  = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .api_captures_iter              = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .api_pattern_set                = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .api_which                      = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+
+    // Harness directives.
+    .case_unescape                  = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .case_match_limit               = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .case_compiles_true             = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .case_compiles_false            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+
+    // Explicitly unsupported/advanced syntax.
+    .lookahead                      = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .negative_lookahead             = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .lookbehind                     = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .negative_lookbehind            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .backref_numeric                = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .backref_named                  = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    // zig fmt: on
+});
+
 pub const Capability = enum {
     // Core syntax.
     /// Plain literal character matching.
@@ -221,113 +332,3 @@ pub fn assertCapBaseline(comptime backend: Backend) void {
         }
     }
 }
-
-/// Single source-of-truth capability x backend matrix.
-///
-/// Each capability row must explicitly set support for every backend.
-pub const cap_backend_map = std.EnumArray(Capability, CapBackendMapEntry).init(.{
-    // zig fmt: off
-    // Core syntax.
-    .literal                        = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .escaped_literal                = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .dot                            = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .concat                         = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .alternation                    = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-
-    // Groups and captures.
-    .capture_group                  = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .noncapture_group               = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .named_capture_group            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-
-    // Repetition.
-    .rep_zero_or_one                = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .rep_zero_or_more               = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .rep_one_or_more                = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .rep_exact                      = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .rep_min                        = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .rep_range                      = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .rep_lazy                       = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .rep_possessive                 = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false }, // not supported
-
-    // Character classes.
-    .class_simple                   = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .class_range                    = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .class_negated                  = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .class_posix                    = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .class_perl                     = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .class_unicode_property         = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .class_unicode_script_or_block  = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-
-    // Assertions and boundaries.
-    .anchor_line_start              = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .anchor_line_end                = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .anchor_text_start              = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .anchor_text_end                = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .word_boundary                  = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .not_word_boundary              = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .word_boundary_start            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .word_boundary_end              = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .word_boundary_start_half       = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .word_boundary_end_half         = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-
-    // Escapes.
-    .escape_c_style                 = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .escape_hex_byte                = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .escape_hex_braced              = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .escape_unicode_short           = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .escape_unicode_long            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .escape_octal                   = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .escape_literal_mode            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-
-    // Flags and parser modes.
-    .ignore_case                    = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .multi_line                     = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .dot_matches_new_line           = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .swap_greed                     = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .crlf_mode                      = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .inline_flags_global            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .inline_flags_scoped            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .inline_flags_toggle            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .unicode_mode                   = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .utf8_mode                      = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .line_terminator_override       = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-
-    // Search and match semantics.
-    .search_leftmost                = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .search_earliest                = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .search_overlapping             = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .match_kind_leftmost_first      = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .match_kind_all                 = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .match_kind_leftmost_longest    = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .empty_match_no_split_codepoint = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-
-    // Input controls.
-    .input_anchored                 = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .input_bounds                   = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .input_bytes                    = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .input_utf8_text                = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-
-    // API surface.
-    .api_is_match                   = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .api_find                       = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .api_captures                   = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .api_find_iter                  = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .api_captures_iter              = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .api_pattern_set                = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .api_which                      = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-
-    // Harness directives.
-    .case_unescape                  = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .case_match_limit               = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .case_compiles_true             = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .case_compiles_false            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-
-    // Explicitly unsupported/advanced syntax.
-    .lookahead                      = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .negative_lookahead             = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .lookbehind                     = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .negative_lookbehind            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .backref_numeric                = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    .backref_named                  = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
-    // zig fmt: on
-});

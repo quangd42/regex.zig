@@ -19,6 +19,7 @@ pub const Node = union(enum) {
     class_perl: Class.Perl,
     class: Class,
     group: Group,
+    set_flags: Flags,
     alternation: Alternation,
     concat: Concat,
     repetition: Repetition,
@@ -127,7 +128,51 @@ pub const Class = struct {
 
 pub const Group = struct {
     node: Node.Index,
-    index: ?u16,
+    kind: Kind,
+
+    pub const Kind = union(enum) {
+        numbered: u16,
+        // named: Named,
+        non_capturing: Flags,
+    };
+
+    pub const Named = struct {
+        index: u16,
+        name: []const u8,
+    };
+};
+
+pub const Flag = enum {
+    case_insensitive,
+    multi_line,
+    dot_matches_new_line,
+    swap_greed,
+};
+
+pub const Flags = struct {
+    items: [max_len]Item = undefined,
+    len: u8 = 0,
+
+    pub const max_len = 5;
+
+    pub const Item = union(enum) {
+        disable_op,
+        flag: Flag,
+    };
+
+    pub fn isEmpty(self: *const Flags) bool {
+        return self.len == 0;
+    }
+
+    pub fn slice(self: *const Flags) []const Item {
+        return self.items[0..self.len];
+    }
+
+    pub fn push(self: *Flags, item: Item) void {
+        std.debug.assert(self.len < max_len);
+        self.items[self.len] = item;
+        self.len += 1;
+    }
 };
 
 pub const Alternation = struct {
@@ -141,7 +186,8 @@ pub const Concat = struct {
 pub const Repetition = struct {
     kind: Kind,
     node: Node.Index,
-    lazy: bool, // false = greedy
+    /// True when the repetition uses an explicit `?` suffix, e.g. `*?` or `+?`.
+    lazy_suffix: bool,
 
     /// Repetition count is capped at 1000 during parsing,
     /// so an u16 is enough.
@@ -193,9 +239,21 @@ fn formatNode(self: @This(), writer: *std.Io.Writer, index: Node.Index) std.Io.W
         .class => |cls| try formatClass(writer, cls),
         .group => |group| {
             try writer.printAsciiChar('(', .{});
-            if (group.index == null) try writer.writeAll("?:");
+            switch (group.kind) {
+                .non_capturing => |flags| {
+                    try writer.writeAll("?");
+                    try formatFlags(writer, flags);
+                    try writer.writeAll(":");
+                },
+                else => {},
+            }
             try self.formatNode(writer, group.node);
             try writer.printAsciiChar(')', .{});
+        },
+        .set_flags => |flags| {
+            try writer.writeAll("(?");
+            try formatFlags(writer, flags);
+            try writer.writeAll(")");
         },
         .alternation => |a| {
             try self.formatNode(writer, a.nodes[0]);
@@ -219,7 +277,7 @@ fn formatNode(self: @This(), writer: *std.Io.Writer, index: Node.Index) std.Io.W
                 .at_least => |b| try writer.print("{{{d},}}", .{b}),
                 .between => |b| try writer.print("{{{d},{d}}}", .{ b.min, b.max }),
             }
-            if (r.lazy) try writer.printAsciiChar('?', .{});
+            if (r.lazy_suffix) try writer.printAsciiChar('?', .{});
         },
         .assertion => |a| {
             switch (a) {
@@ -231,6 +289,24 @@ fn formatNode(self: @This(), writer: *std.Io.Writer, index: Node.Index) std.Io.W
                 .not_word_boundary => try writer.print("\\B", .{}),
             }
         },
+    }
+}
+
+fn formatFlag(writer: *std.Io.Writer, flag: Flag) std.Io.Writer.Error!void {
+    try writer.writeAll(switch (flag) {
+        .case_insensitive => "i",
+        .multi_line => "m",
+        .dot_matches_new_line => "s",
+        .swap_greed => "U",
+    });
+}
+
+fn formatFlags(writer: *std.Io.Writer, flags: Flags) !void {
+    for (flags.slice()) |op| {
+        switch (op) {
+            .disable_op => try writer.writeAll("-"),
+            .flag => |flag| try formatFlag(writer, flag),
+        }
     }
 }
 

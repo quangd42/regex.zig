@@ -1,6 +1,6 @@
 # TOML Test Generation
 
-This tooling converts Rust `regex`-style `[[test]]` TOML files into generated
+This tooling converts rust-regex's style `[[test]]` TOML files into generated
 Zig tests under `tests/generated/`.
 
 Files:
@@ -24,7 +24,7 @@ For each file stem, the generator derives:
 - output: `{output_dir}/{stem}.zig`
 - suite name: `{suite_prefix}/{stem}`
 
-`files` is explicit so generation order stays deterministic and new vendored
+`files` is explicit so generation order stays deterministic and new test files
 files do not silently change the test matrix. Multiple `SourceConfig` values
 may share the same command and directories when they need different
 `matches_format` values.
@@ -45,11 +45,7 @@ Both normalize to the harness's first-match capture view.
 
 1. Add a `.toml` file under `tests/data/`.
 
-2. If the file is vendored, update `tests/data/README.md` with its origin and
-   sync commit. If it is project-local, add a short note there describing the
-   intent and whether it should be proposed upstream.
-
-3. Add a `SourceConfig` in `tools/tests/gen_toml_tests.zig`. If local files use
+2. Add a `SourceConfig` in `tools/tests/gen_toml_tests.zig`. If local files use
    different `matches` shapes, split them into separate configs.
 
 ```zig
@@ -63,10 +59,10 @@ const local_matches: SourceConfig = .{
 };
 ```
 
-4. Hook it into `runAll()`. Keep `runLocal()`/`zig build gen-tests -- local`
+3. Hook it into `runAll()`. Add a dedicated run such as `runLocal()`/`zig build gen-tests -- local`
    if you want a dedicated local command.
 
-5. Import the generated file in `tests/suite.zig`.
+4. Import the generated file in `tests/suite.zig`.
 
 ```zig
 comptime {
@@ -74,7 +70,7 @@ comptime {
 }
 ```
 
-6. Regenerate and run the suite:
+5. Regenerate and run the suite:
 
 ```sh
 zig build gen-tests -- all

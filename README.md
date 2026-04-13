@@ -72,12 +72,25 @@ If you only need a boolean, prefer `match()`. If you only need the match span,
 prefer `find()`. Use `findCaptures()` only when you actually need subgroup
 locations.
 
-`findCaptures()` also has two usage styles:
+`findCaptures()` uses caller-managed storage. Use `captureCount()` to determine
+the required buffer length, then either reuse a stack buffer or allocate a
+`[]?Regex.Match` on the heap. The returned `Captures` value is a small view over
+that buffer.
 
-- `findCaptures(..., buffer)` lets the caller provide reusable storage and avoid
-  per-search allocation.
-- `findCapturesAlloc()` is the convenience form that allocates the buffer for the
-- result captures.
+```zig
+const n = re.captureCount();
+
+if (n <= stack_buf.len) {
+    var stack_buf: [8]?Regex.Match = undefined;
+    const captures = try re.findCaptures(haystack, stack_buf[0..n])
+    // use captures...
+} else {
+    const heap_buf = try gpa.alloc(?Regex.Match, n);
+    defer gpa.free(heap_buf);
+    const captures = try re.findCaptures(haystack, heap_buf);
+    // use captures...
+};
+```
 
 For unanchored searches, the engine also uses a small literal-prefix fast path
 when the pattern begins with a required literal byte.

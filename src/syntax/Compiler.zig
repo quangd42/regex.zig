@@ -16,10 +16,7 @@ const Error = error{Compile} || Allocator.Error;
 
 const Options = struct {
     // Syntax
-    case_insensitive: bool,
-    dot_matches_new_line: bool,
-    swap_greed: bool,
-    multi_line: bool,
+    syntax: SyntaxOptions,
     // Limits
     max_states: usize,
     // Diag
@@ -27,10 +24,7 @@ const Options = struct {
 
     fn fromTopLevel(options: TopLevelOptions) !Options {
         return .{
-            .case_insensitive = options.syntax.case_insensitive,
-            .dot_matches_new_line = options.syntax.dot_matches_new_line,
-            .swap_greed = options.syntax.swap_greed,
-            .multi_line = options.syntax.multi_line,
+            .syntax = options.syntax,
             .max_states = try maxState(options.limits.max_states, options.diag),
             .diag = options.diag,
         };
@@ -53,7 +47,6 @@ pub fn compile(gpa: Allocator, pattern: []const u8, options: TopLevelOptions) !P
     var parser: Parser = .init(gpa, pattern, .{
         .max_repeat = options.limits.max_repeat,
         .diag = options.diag,
-        .syntax = options.syntax,
     });
     var ast = try parser.parse();
     defer ast.deinit(gpa);
@@ -97,22 +90,37 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) Error!Frag {
         },
         .dot => {
             const any_kind: State.Any.Kind =
-                if (c.options.dot_matches_new_line) .all else .not_lf;
+                if (c.options.syntax.dot_matches_new_line) .all else .not_lf;
             return c.state(.{ .any = .{ .kind = any_kind, .out = 0 } });
         },
         .class_perl => |cl| return c.namedClass(perlRanges(cl), cl.negated),
         .class => |cl| return c.class(cl),
         .group => |gr| {
-            const group_index = gr.index orelse return try c.compileNode(ast, gr.node);
-            const slot_2k = @as(u32, group_index) * 2;
-            const frag = c.cat(try c.cap(slot_2k), try c.compileNode(ast, gr.node));
-            return c.cat(frag, try c.cap(slot_2k + 1));
+            switch (gr.kind) {
+                .numbered => |group_index| {
+                    const slot_2k = @as(u32, group_index) * 2;
+                    const frag = c.cat(try c.cap(slot_2k), try c.compileNode(ast, gr.node));
+                    return c.cat(frag, try c.cap(slot_2k + 1));
+                },
+                .non_capturing => |flags| {
+                    const before: SyntaxOptions = c.options.syntax;
+                    defer c.options.syntax = before;
+                    c.applySyntaxFlags(flags);
+                    return c.compileNode(ast, gr.node);
+                },
+            }
+        },
+        .set_flags => |flags| {
+            c.applySyntaxFlags(flags);
+            return c.empty();
         },
         .concat => |concat| {
             if (concat.nodes.len == 0) {
                 // Occurs in empty alternation branch
                 return c.empty();
             }
+            const before: SyntaxOptions = c.options.syntax;
+            defer c.options.syntax = before;
             var frag = try c.compileNode(ast, concat.nodes[0]);
             for (concat.nodes[1..]) |index| {
                 frag = c.cat(frag, try c.compileNode(ast, index));
@@ -120,6 +128,8 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) Error!Frag {
             return frag;
         },
         .alternation => |alt| {
+            const before: SyntaxOptions = c.options.syntax;
+            defer c.options.syntax = before;
             switch (alt.nodes.len) {
                 0 => return c.empty(),
                 1 => return c.compileNode(ast, alt.nodes[0]),
@@ -146,15 +156,16 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) Error!Frag {
         },
         .repetition => |rep| {
             const Kind = Ast.Repetition.Kind;
+            const lazy = rep.lazy_suffix != c.options.syntax.swap_greed;
             rep_kind: switch (rep.kind) {
                 .zero_or_one => {
-                    return c.quest(try c.compileNode(ast, rep.node), rep.lazy);
+                    return c.quest(try c.compileNode(ast, rep.node), lazy);
                 },
                 .zero_or_more => {
-                    return c.star(try c.compileNode(ast, rep.node), rep.lazy);
+                    return c.star(try c.compileNode(ast, rep.node), lazy);
                 },
                 .one_or_more => {
-                    return c.plus(try c.compileNode(ast, rep.node), rep.lazy);
+                    return c.plus(try c.compileNode(ast, rep.node), lazy);
                 },
                 .exactly => |min| {
                     return c.compileNTimes(ast, rep.node, min);
@@ -165,7 +176,7 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) Error!Frag {
                         1 => continue :rep_kind Kind.one_or_more,
                         else => return c.cat(
                             try c.compileNTimes(ast, rep.node, min - 1),
-                            try c.plus(try c.compileNode(ast, rep.node), rep.lazy),
+                            try c.plus(try c.compileNode(ast, rep.node), lazy),
                         ),
                     }
                 },
@@ -183,11 +194,11 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) Error!Frag {
                     //
                     // Reference:
                     // https://github.com/golang/go/blob/master/src/regexp/syntax/simplify.go
-                    var suffix = try c.quest(try c.compileNode(ast, rep.node), rep.lazy);
+                    var suffix = try c.quest(try c.compileNode(ast, rep.node), lazy);
                     for (b.min..b.max - 1) |_| {
                         suffix = try c.quest(
                             c.cat(try c.compileNode(ast, rep.node), suffix),
-                            rep.lazy,
+                            lazy,
                         );
                     }
                     if (b.min == 0) return suffix;
@@ -198,8 +209,8 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) Error!Frag {
         .assertion => |asrt| {
             return c.state(.{ .assert = .{
                 .pred = switch (asrt) {
-                    .start_line_or_text => if (c.options.multi_line) .start_line else .start_text,
-                    .end_line_or_text => if (c.options.multi_line) .end_line else .end_text,
+                    .start_line_or_text => if (c.options.syntax.multi_line) .start_line else .start_text,
+                    .end_line_or_text => if (c.options.syntax.multi_line) .end_line else .end_text,
                     .start_text => .start_text,
                     .end_text => .end_text,
                     .word_boundary => .word_boundary,
@@ -351,7 +362,7 @@ fn empty(c: *Compiler) !Frag {
 
 fn literal(c: *Compiler, lit: Ast.Literal) !Frag {
     const byte = lit.char();
-    if (!c.options.case_insensitive) {
+    if (!c.options.syntax.case_insensitive) {
         return c.state(.{ .char = .{ .byte = byte, .out = 0 } });
     }
     const folded = asciiSimpleFold(byte) orelse
@@ -446,6 +457,26 @@ fn appendNamedClass(c: *Compiler, source: []const ByteRange, negated: bool) !?us
     return c.negateTailRanges(start);
 }
 
+/// Apply parsed `Ast.Flags` to `SyntaxOptions`. `Ast.Flags` value is assumed to be
+/// structurally correct: each flag and `-` only appears once.
+fn applySyntaxFlags(c: *Compiler, flags: Ast.Flags) void {
+    const opts = &c.options.syntax;
+    var flag_value = true;
+    for (flags.slice()) |item| {
+        switch (item) {
+            .flag => |flag| {
+                switch (flag) {
+                    .case_insensitive => opts.case_insensitive = flag_value,
+                    .multi_line => opts.multi_line = flag_value,
+                    .dot_matches_new_line => opts.dot_matches_new_line = flag_value,
+                    .swap_greed => opts.swap_greed = flag_value,
+                }
+            },
+            .disable_op => flag_value = false,
+        }
+    }
+}
+
 /// ASCII-only folding via range overlap arithmetic.
 fn foldRangeAssumeCapacity(
     c: *Compiler,
@@ -453,7 +484,7 @@ fn foldRangeAssumeCapacity(
     to: u8,
 ) void {
     c.ranges.appendAssumeCapacity(.{ .from = from, .to = to });
-    if (!c.options.case_insensitive) return;
+    if (!c.options.syntax.case_insensitive) return;
     if (to < 'A' or from > 'z') return;
 
     if (intersectByteRange(from, to, 'A', 'Z')) |upper| {
@@ -490,7 +521,7 @@ fn asciiSimpleFold(byte: u8) ?u8 {
 /// Used to reserve per-item capacity before `appendAssumeCapacity` calls.
 fn classItemUpperBound(c: *Compiler, item: Ast.Class.Item) usize {
     return switch (item) {
-        .literal, .range => if (c.options.case_insensitive) 3 else 1,
+        .literal, .range => if (c.options.syntax.case_insensitive) 3 else 1,
         .perl => |perl| c.namedClassUpperBound(perlRanges(perl).len, perl.negated),
         .ascii => |ascii| c.namedClassUpperBound(asciiRanges(ascii).len, ascii.negated),
     };
@@ -500,7 +531,7 @@ fn classItemUpperBound(c: *Compiler, item: Ast.Class.Item) usize {
 /// Case folding can expand each source range up to 3 ranges, and negation can
 /// add at most one additional range.
 fn namedClassUpperBound(c: *Compiler, source_len: usize, negated: bool) usize {
-    var n = if (c.options.case_insensitive) source_len * 3 else source_len;
+    var n = if (c.options.syntax.case_insensitive) source_len * 3 else source_len;
     if (negated) n += 1;
     return n;
 }
@@ -1116,6 +1147,7 @@ const Ast = @import("Ast.zig");
 const errors = @import("../errors.zig");
 const Diagnostics = errors.Diagnostics;
 const TopLevelOptions = @import("../Options.zig");
+const SyntaxOptions = TopLevelOptions.Syntax;
 const Parser = @import("Parser.zig");
 const Program = @import("Program.zig");
 const g = @import("program_graph.zig");

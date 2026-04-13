@@ -8,4 +8,5 @@ comptime {
     _ = @import("fowler/nullsubexpr.zig");
     _ = @import("generated/flags.zig");
     _ = @import("generated/multiline.zig");
+    _ = @import("generated/flags-local.zig");
 }

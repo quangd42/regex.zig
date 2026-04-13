@@ -10,7 +10,6 @@ nodes: ArrayList(Node) = .empty,
 stack: ArrayList(Frame) = .empty,
 
 options: Options,
-active_flags: SyntaxOptions,
 
 pub const Error = error{Parse} || Allocator.Error;
 
@@ -21,8 +20,8 @@ const Frame = union(enum) {
     concat: struct {
         /// The actual value of the prev concat.
         value: *NodeList,
-        /// Capture group index assigned at the opening `(`.
-        group_index: ?u16,
+        /// The kind of group being parsed
+        group_kind: Ast.Group.Kind,
         /// Span of the opening `(`, mostly used for unclosed-group diagnostics.
         opener_span: Span,
     },
@@ -35,7 +34,6 @@ const Frame = union(enum) {
 pub const Options = struct {
     diag: ?*Diagnostics = null,
     max_repeat: u16 = 1000,
-    syntax: SyntaxOptions = .{},
 };
 
 pub fn init(gpa: Allocator, pattern: []const u8, options: Options) Parser {
@@ -44,7 +42,6 @@ pub fn init(gpa: Allocator, pattern: []const u8, options: Options) Parser {
         .offset = 0,
         .arena = .init(gpa),
         .options = options,
-        .active_flags = options.syntax,
     };
 }
 
@@ -124,32 +121,36 @@ fn pushGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
     assert(p.prev() == '(');
     const a = p.arena.allocator();
     const opener_span = p.prevSpan();
-    var group_flags: GroupFlags = .{};
-    if (p.eatIf('?')) group_flags = try p.parseGroupFlags(opener_span);
-    // shelf cur_concat and create new concat to parse group
-    try p.stack.append(a, .{ .concat = .{
-        .value = cur_concat,
-        .opener_span = opener_span,
-        .group_index = b: {
-            if (group_flags.non_capturing) break :b null;
-            const group_index = p.group_count;
-            p.group_count += 1;
-            break :b group_index;
+    const group_kind = try p.parseGroupKind(opener_span);
+    switch (group_kind) {
+        .flags_only => |flags| {
+            // This is a SetFlags node, add it to cur_concat and continue
+            const flags_index = try p.addNode(.{ .set_flags = flags });
+            try cur_concat.append(a, flags_index);
+            return cur_concat;
         },
-    } });
-    return p.createNodeList();
+        .group => |kind| {
+            // shelf cur_concat and create new concat to parse group
+            try p.stack.append(a, .{ .concat = .{
+                .value = cur_concat,
+                .opener_span = opener_span,
+                .group_kind = kind,
+            } });
+            return p.createNodeList();
+        },
+    }
 }
 
 fn popGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
     assert(p.prev() == ')');
     const a = p.arena.allocator();
-    const stack_top = p.stack.pop() orelse return p.err(.unexpected_group_close);
+    const stack_top = p.stack.pop() orelse return p.err(.group_close_unexpected);
     switch (stack_top) {
         .concat => |concat| {
             // cur_concat contains the content of the Group node
             const concat_index = try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
             const group_index = try p.addNode(.{
-                .group = .{ .node = concat_index, .index = concat.group_index },
+                .group = .{ .node = concat_index, .kind = concat.group_kind },
             });
             try concat.value.append(a, group_index);
             return concat.value;
@@ -157,12 +158,12 @@ fn popGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
         .alt => |alt| {
             // cur_concat is the else branch of last alternation, pop stack once more to find prev_concat
             try alt.append(a, try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } }));
-            const next_top = p.stack.pop() orelse return p.err(.unexpected_group_close);
+            const next_top = p.stack.pop() orelse return p.err(.group_close_unexpected);
             switch (next_top) {
                 .concat => |concat| {
                     const alt_index = try p.addNode(.{ .alternation = .{ .nodes = try alt.toOwnedSlice(a) } });
                     try concat.value.append(a, try p.addNode(.{
-                        .group = .{ .node = alt_index, .index = concat.group_index },
+                        .group = .{ .node = alt_index, .kind = concat.group_kind },
                     }));
                     return concat.value;
                 },
@@ -205,17 +206,84 @@ fn popGroupAtEnd(p: *Parser, cur_concat: *NodeList) !void {
 
 // --- parser funcs ---
 
-const GroupFlags = struct {
-    non_capturing: bool = false,
+const GroupKind = union(enum) {
+    flags_only: Ast.Flags,
+    group: Ast.Group.Kind,
 };
 
-fn parseGroupFlags(p: *Parser, open_paren: Span) !GroupFlags {
-    assert(p.prev() == '?');
+fn parseGroupKind(p: *Parser, open_paren: Span) !GroupKind {
+    assert(p.prev() == '(');
+    if (!p.eatIf('?')) return .{ .group = .{ .numbered = p.nextGroupIndex() } };
+    const quest_span = p.prevSpan();
+    if (p.atEnd()) return p.errAt(.group_not_closed, open_paren);
+    const flags = try p.parseFlags();
     const c = p.eat() orelse return p.errAt(.group_not_closed, open_paren);
-    switch (c) {
-        ':' => return .{ .non_capturing = true },
-        else => return p.err(.unsupported_feature),
+    if (c == ':') return .{ .group = .{ .non_capturing = flags } };
+    assert(c == ')');
+    if (flags.isEmpty()) {
+        // We don't allow empty flags, e.g., `(?)`. We instead interpret
+        // it as a repetition operator missing its argument like Rust.
+        return p.errAt(.repeat_argument_missing, quest_span);
     }
+    return .{ .flags_only = flags };
+}
+
+fn nextGroupIndex(p: *Parser) u16 {
+    const group_index = p.group_count;
+    p.group_count += 1;
+    return group_index;
+}
+
+/// Parses inline flags after `(?`.
+/// On success, the next byte must be `:` or `)`.
+/// Duplicate flags are rejected, including across `-`.
+fn parseFlags(p: *Parser) !Ast.Flags {
+    assert(p.prev() == '?');
+    var flags: Ast.Flags = .{};
+    var flag_spans = [_]?Span{null} ** std.meta.fields(Ast.Flag).len;
+    var disable_span: ?Span = null;
+    var disable_op_last = false;
+
+    while (p.peek()) |c| {
+        switch (c) {
+            '-' => {
+                _ = p.eat();
+                if (disable_span) |span| {
+                    return p.errWithAuxAt(.flag_disable_op_duplicated, p.prevSpan(), span);
+                }
+                disable_span = p.prevSpan();
+                flags.push(.disable_op);
+                disable_op_last = true;
+            },
+            'i', 'm', 's', 'U' => {
+                _ = p.eat();
+                const flag = parseFlag(c);
+                const i = @intFromEnum(flag);
+                if (flag_spans[i]) |span| {
+                    return p.errWithAuxAt(.flag_duplicated, p.prevSpan(), span);
+                }
+                flag_spans[i] = p.prevSpan();
+                flags.push(.{ .flag = flag });
+                disable_op_last = false;
+            },
+            ':', ')' => {
+                if (disable_op_last) return p.err(.flag_disable_op_dangling);
+                break;
+            },
+            else => return p.errCurrent(.flag_unsupported),
+        }
+    }
+    return flags;
+}
+
+fn parseFlag(c: u8) Ast.Flag {
+    return switch (c) {
+        'i' => .case_insensitive,
+        'm' => .multi_line,
+        's' => .dot_matches_new_line,
+        'U' => .swap_greed,
+        else => unreachable,
+    };
 }
 
 fn parseRepetition(
@@ -225,7 +293,7 @@ fn parseRepetition(
 ) !void {
     assert(p.prev() == '*' or p.prev() == '+' or p.prev() == '?' or p.prev() == '{');
 
-    if (concat.items.len == 0) return p.err(.missing_repeat_argument);
+    if (concat.items.len == 0) return p.err(.repeat_argument_missing);
     const last_concat_node = concat.items[concat.items.len - 1];
 
     const rep_kind: Ast.Repetition.Kind =
@@ -239,19 +307,22 @@ fn parseRepetition(
                 if (p.eatIf('}')) {
                     break :b .{ .exactly = min.value };
                 }
-                if (!p.eatIf(',')) return p.errAt(.invalid_repeat_count_format, p.spanFrom(span_start));
+                if (!p.eatIf(',')) return p.errAt(.repeat_count_format_invalid, p.spanFrom(span_start));
                 if (p.eatIf('}')) break :b .{ .at_least = min.value };
                 if (p.atEnd()) return p.errAt(.repeat_count_not_closed, p.spanFrom(span_start));
                 const max = try p.parseDecimal();
-                if (max.value < min.value) return p.errWithAuxAt(.invalid_repeat_size, max.span, min.span);
+                if (max.value < min.value) return p.errWithAuxAt(.repeat_size_invalid, max.span, min.span);
                 if (!p.eatIf('}')) return p.errAt(.repeat_count_not_closed, p.spanFrom(span_start));
                 break :b .{ .between = .{ .min = min.value, .max = max.value } };
             },
         };
     const has_lazy_suffix = p.eatIf('?');
-    const lazy = has_lazy_suffix != p.active_flags.swap_greed;
     const repeat_node = try p.addNode(.{
-        .repetition = .{ .kind = rep_kind, .lazy = lazy, .node = last_concat_node },
+        .repetition = .{
+            .kind = rep_kind,
+            .lazy_suffix = has_lazy_suffix,
+            .node = last_concat_node,
+        },
     });
     concat.items[concat.items.len - 1] = repeat_node;
 }
@@ -267,7 +338,7 @@ fn parseDecimal(p: *Parser) !struct { value: u16, span: Span } {
     var val: u16 = 0;
     for (p.pattern[p.offset..pos]) |c| {
         val = val * 10 + c - '0';
-        if (val > p.options.max_repeat) return p.errAt(.invalid_repeat_size, .{ .start = p.offset, .end = pos });
+        if (val > p.options.max_repeat) return p.errAt(.repeat_size_invalid, .{ .start = p.offset, .end = pos });
     }
     const span: Span = .{ .start = p.offset, .end = pos };
     p.offset = pos;
@@ -284,7 +355,7 @@ fn parseClassItem(p: *Parser, c: u8) !Class.Item {
 fn unwrapItemToLiteral(p: *Parser, item: Class.Item, span: Span) !Ast.Literal {
     return switch (item) {
         .literal => |lit| lit,
-        else => p.errAt(.invalid_class_range, span),
+        else => p.errAt(.class_range_invalid, span),
     };
 }
 
@@ -312,7 +383,7 @@ fn parseClass(p: *Parser) !Node {
                 const to_item = try p.parseClassItem(to_char);
                 const to_item_span = p.spanFrom(to_item_span_start);
                 const to_lit = try p.unwrapItemToLiteral(to_item, to_item_span);
-                if (from_lit.char() > to_lit.char()) return p.errWithAuxAt(.invalid_class_range, to_item_span, last_item_span);
+                if (from_lit.char() > to_lit.char()) return p.errWithAuxAt(.class_range_invalid, to_item_span, last_item_span);
                 item_span_start = last_item_span.start; // set `item_span_start` to start of `from_lit`
                 break :item .{ .range = .{ .from = from_lit, .to = to_lit } };
             } else if (c == '[' and p.eatIf(':')) {
@@ -322,10 +393,10 @@ fn parseClass(p: *Parser) !Node {
                 const end = while (p.eat()) |cur| {
                     if (cur == ':') break p.offset - 1;
                 } else return p.errAt(.class_not_closed, p.spanFrom(cls_span_start));
-                if (!p.eatIf(']')) return p.errAt(.invalid_ascii_class, p.spanFrom(item_span_start));
+                if (!p.eatIf(']')) return p.errAt(.class_ascii_invalid, p.spanFrom(item_span_start));
                 const name = p.pattern[start..end];
                 const kind = Class.Ascii.Kind.fromName(name) orelse
-                    return p.errAt(.invalid_ascii_class, p.spanFrom(item_span_start));
+                    return p.errAt(.class_ascii_invalid, p.spanFrom(item_span_start));
                 break :item .{ .ascii = .{ .kind = kind, .negated = negated } };
             } else {
                 break :item try p.parseClassItem(c);
@@ -348,7 +419,7 @@ fn parseEscape(p: *Parser) !Node {
     if (parseClassPerl(c)) |perl| return .{ .class_perl = perl };
     if (parseAssertion(c)) |asrt| return .{ .assertion = asrt };
     if (try p.parseEscapeLiteral(c)) |lit| return .{ .literal = lit };
-    return p.err(.invalid_escape);
+    return p.err(.escape_invalid);
 }
 
 fn parseEscapeInClass(p: *Parser) !Class.Item {
@@ -356,7 +427,7 @@ fn parseEscapeInClass(p: *Parser) !Class.Item {
     const c = p.eat() orelse return p.err(.escape_at_eof);
     if (parseClassPerl(c)) |perl| return .{ .perl = perl };
     if (try p.parseEscapeLiteral(c)) |lit| return .{ .literal = lit };
-    return p.err(.invalid_escape);
+    return p.err(.escape_invalid);
 }
 
 fn parseCStyleEscape(c: u8) Ast.Literal.CStyle {
@@ -375,7 +446,7 @@ fn parseHex(p: *Parser) !Ast.Literal {
     assert(p.prev() == 'x');
     const hex_span_start = p.offset - 1;
     if (p.offset + 2 > p.pattern.len)
-        return p.errAt(.invalid_escape, .{ .start = hex_span_start, .end = p.pattern.len });
+        return p.errAt(.escape_invalid, .{ .start = hex_span_start, .end = p.pattern.len });
     var byte: u8 = 0;
     for (p.pattern[p.offset..][0..2]) |c| {
         p.offset += 1;
@@ -383,7 +454,7 @@ fn parseHex(p: *Parser) !Ast.Literal {
             '0'...'9' => c - '0',
             'a'...'f' => c - 'a' + 10,
             'A'...'F' => c - 'A' + 10,
-            else => return p.errAt(.invalid_escape, p.spanFrom(hex_span_start)),
+            else => return p.errAt(.escape_invalid, p.spanFrom(hex_span_start)),
         };
         byte = (byte << 4) | d;
     }
@@ -550,6 +621,8 @@ test "parse to string round trip" {
         // group & alternation
         "a(b|c|\\d)",
         "a(?:b|c)",
+        "a(?iU-sm:b|c)",
+        "a(bc(?U-sm)de)",
         "\\d|a|\\s",
         "a|", // empty alt
         "|a",
@@ -632,7 +705,7 @@ test "parse errors" {
         },
         .{
             .pattern = "*",
-            .tag = .missing_repeat_argument,
+            .tag = .repeat_argument_missing,
             .start = 0,
             .end = 1,
         },
@@ -650,38 +723,38 @@ test "parse errors" {
         },
         .{
             .pattern = "a{5.0}",
-            .tag = .invalid_repeat_count_format,
+            .tag = .repeat_count_format_invalid,
             .start = 1,
             .end = 3,
         },
         .{
             .pattern = "a{1001}",
-            .tag = .invalid_repeat_size,
+            .tag = .repeat_size_invalid,
             .start = 2,
             .end = 6,
         },
         .{
             .pattern = "a{5,3}",
-            .tag = .invalid_repeat_size,
+            .tag = .repeat_size_invalid,
             .start = 4,
             .end = 5,
             .aux_span = .{ .start = 2, .end = 3 },
         },
         .{
             .pattern = "\\Z0B",
-            .tag = .invalid_escape,
+            .tag = .escape_invalid,
             .start = 1,
             .end = 2,
         },
         .{
             .pattern = "\\x1",
-            .tag = .invalid_escape,
+            .tag = .escape_invalid,
             .start = 1,
             .end = 3,
         },
         .{
             .pattern = "\\xZZ",
-            .tag = .invalid_escape,
+            .tag = .escape_invalid,
             .start = 1,
             .end = 3,
         },
@@ -705,7 +778,7 @@ test "parse errors" {
         },
         .{
             .pattern = ")",
-            .tag = .unexpected_group_close,
+            .tag = .group_close_unexpected,
             .start = 0,
             .end = 1,
         },
@@ -741,39 +814,77 @@ test "parse errors" {
         },
         .{
             .pattern = "(?=a)",
-            .tag = .unsupported_feature,
+            .tag = .flag_unsupported,
             .start = 2,
             .end = 3,
         },
         .{
-            .pattern = "(?i)",
-            .tag = .unsupported_feature,
+            .pattern = "(?i",
+            .tag = .group_not_closed,
+            .start = 0,
+            .end = 1,
+        },
+        .{
+            .pattern = "(?-)",
+            .tag = .flag_disable_op_dangling,
             .start = 2,
             .end = 3,
+        },
+        .{
+            .pattern = "(?i-)",
+            .tag = .flag_disable_op_dangling,
+            .start = 3,
+            .end = 4,
+        },
+        .{
+            .pattern = "(?ii)",
+            .tag = .flag_duplicated,
+            .start = 3,
+            .end = 4,
+            .aux_span = .{ .start = 2, .end = 3 },
+        },
+        .{
+            .pattern = "(?i-i)",
+            .tag = .flag_duplicated,
+            .start = 4,
+            .end = 5,
+            .aux_span = .{ .start = 2, .end = 3 },
+        },
+        .{
+            .pattern = "(?R)",
+            .tag = .flag_unsupported,
+            .start = 2,
+            .end = 3,
+        },
+        .{
+            .pattern = "(?imx)",
+            .tag = .flag_unsupported,
+            .start = 4,
+            .end = 5,
         },
         .{
             .pattern = "[z-a]",
-            .tag = .invalid_class_range,
+            .tag = .class_range_invalid,
             .start = 3,
             .end = 4,
             .aux_span = .{ .start = 1, .end = 2 },
         },
         .{
             .pattern = "[a-\\d]",
-            .tag = .invalid_class_range,
+            .tag = .class_range_invalid,
             .start = 3,
             .end = 5,
         },
         .{
             .pattern = "[[:alpaca:]]",
-            .tag = .invalid_ascii_class,
+            .tag = .class_ascii_invalid,
             .start = 1,
             .end = 11,
         },
         .{
             // compatibility decision: `\b` is assertion-only, not class item.
             .pattern = "[\\b]",
-            .tag = .invalid_escape,
+            .tag = .escape_invalid,
             .start = 2,
             .end = 3,
         },
@@ -801,7 +912,6 @@ const NodeList = ArrayList(Node.Index);
 const errors = @import("../errors.zig");
 const Diagnostics = errors.Diagnostics;
 const Span = errors.Span;
-const SyntaxOptions = @import("../Options.zig").Syntax;
 
 const assert = std.debug.assert;
 const panic = std.debug.panic;

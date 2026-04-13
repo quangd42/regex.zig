@@ -1,0 +1,84 @@
+[[test]]
+name = "regex-level-ignore-case-inline-disable-match"
+regex = 'a(?-i)b'
+haystack = "Ab"
+matches = [[0, 2]]
+case-insensitive = true
+
+[[test]]
+name = "regex-level-ignore-case-inline-disable-no-match"
+regex = 'a(?-i)b'
+haystack = "AB"
+matches = []
+case-insensitive = true
+
+[[test]]
+name = "regex-level-dotall-inline-disable-match"
+regex = '.(?-s:.)'
+haystack = "\na"
+matches = [[0, 2]]
+dot-matches-new-line = true
+
+[[test]]
+name = "regex-level-dotall-inline-disable-no-match"
+regex = '.(?-s:.)'
+haystack = "\n\n"
+matches = []
+dot-matches-new-line = true
+
+[[test]]
+name = "inline-flags-mid-concat-match"
+regex = 'a(?i)b'
+haystack = "aB"
+matches = [[0, 2]]
+
+[[test]]
+name = "inline-flags-mid-concat-no-retroactive"
+regex = 'a(?i)b'
+haystack = "AB"
+matches = []
+
+[[test]]
+name = "scoped-ignore-case-restores-after-group"
+regex = '(?i)(?-i:ab)C'
+haystack = "abc"
+matches = [[0, 3]]
+
+[[test]]
+name = "scoped-ignore-case-restores-after-group-no-match"
+regex = '(?i)(?-i:ab)C'
+haystack = "Abc"
+matches = []
+
+[[test]]
+name = "regex-level-multi-line-restores-after-scoped-disable"
+regex = '(?-m:^ab$)|^cd$'
+haystack = "ab\ncd"
+matches = [[3, 5]]
+multi-line = true
+
+[[test]]
+name = "captures-in-flagged-group"
+regex = '(?i:(ab))c'
+haystack = "ABc"
+matches = [[[0, 3], [0, 2]]]
+
+[[test]]
+name = "captures-inside-flagged-noncapturing-group"
+regex = '(?i:(?:x(ab)))c'
+haystack = "XABc"
+matches = [[[0, 4], [1, 3]]]
+
+[[test]]
+name = "mixed-inline-flags-set-and-clear-match"
+regex = '(?s-i:a.)'
+haystack = "a\n"
+matches = [[0, 2]]
+case-insensitive = true
+
+[[test]]
+name = "mixed-inline-flags-set-and-clear-no-match"
+regex = '(?s-i:a.)'
+haystack = "A\n"
+matches = []
+case-insensitive = true
