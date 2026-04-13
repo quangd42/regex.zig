@@ -25,11 +25,16 @@ The current implementation includes:
 
 - a Pike VM execution engine
 - literals, concatenation, alternation
-- grouping and captures
+- capturing groups, non-capturing groups, and named captures
 - repetition operators (`?`, `*`, `+`, `{m}`, `{m,}`, `{m,n}`) including lazy forms
 - Perl classes (`\d`, `\w`, `\s`) and bracket classes (including POSIX classes)
+- ASCII escapes including C-style escapes and `\xNN`
 - assertions and boundaries (`^`, `$`, `\A`, `\z`, `\b`, `\B`)
-- global flags via compile options (`Regex.compile(..., .{ .syntax = ... })`):
+- inline flags:
+  - global flags `(?imsU)`
+  - scoped flags `(?i:...)`
+  - flag toggles `(?i-m:...)`
+- compile options via `Regex.compile(..., .{ .syntax = ... })` for default syntax flags:
   - case-insensitive (`i`)
   - multi-line (`m`)
   - dot-matches-new-line (`s`)
@@ -79,10 +84,10 @@ that buffer.
 
 ```zig
 const n = re.captureCount();
+var stack_buf: [8]?Regex.Match = undefined;
 
 if (n <= stack_buf.len) {
-    var stack_buf: [8]?Regex.Match = undefined;
-    const captures = try re.findCaptures(haystack, stack_buf[0..n])
+    const captures = try re.findCaptures(haystack, stack_buf[0..n]);
     // use captures...
 } else {
     const heap_buf = try gpa.alloc(?Regex.Match, n);
@@ -113,9 +118,8 @@ pub fn main() !void {
 }
 ```
 
-Inline flag syntax is not supported yet. For the currently supported global
-flags, compile options let you set the equivalent top-level defaults you would
-otherwise express with a leading inline flag such as `(?imsU)`:
+Compile options let you set default syntax flags up front. Inline flags inside
+the pattern can still override them:
 
 ```zig
 const std = @import("std");

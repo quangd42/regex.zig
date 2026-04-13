@@ -27,7 +27,7 @@ arena: std.heap.ArenaAllocator,
 
 pub fn init(gpa: Allocator, prog: Program) !Vm {
     const state_count: u32 = @intCast(prog.states.len);
-    const slot_count: u32 = @as(u32, prog.capture_count) * 2;
+    const slot_count: u32 = @as(u32, prog.capture_info.count) * 2;
     var arena = std.heap.ArenaAllocator.init(gpa);
     const a = arena.allocator();
     return .{
@@ -42,7 +42,7 @@ pub fn init(gpa: Allocator, prog: Program) !Vm {
 }
 
 pub fn deinit(vm: *Vm) void {
-    vm.prog.arena.deinit();
+    vm.prog.deinit();
     vm.arena.deinit();
 }
 
@@ -56,7 +56,7 @@ pub fn find(vm: *Vm, input: Input) ?Match {
 }
 
 pub fn findCaptures(vm: *Vm, input: Input, buffer: []?Match) !?Captures {
-    if (buffer.len < vm.prog.capture_count) return error.BufferTooSmall;
+    if (buffer.len < vm.prog.capture_info.count) return error.BufferTooSmall;
     const slots = vm.search(.full, input) orelse return null;
     return vm.buildCaptures(slots, buffer);
 }
@@ -273,14 +273,14 @@ fn buildMatch(slots: []const Offset) ?Match {
 /// Fills the buffer with given capture slots and wraps it as Captures.
 /// Asserts that the buffer is big enough to contain matched slots.
 fn buildCaptures(vm: *Vm, slots: []const Offset, buffer: []?Match) ?Captures {
-    const group_count = vm.prog.capture_count;
-    assert(buffer.len >= group_count);
-    assert(slots.len >= group_count * 2);
+    const capture_count = vm.prog.capture_info.count;
+    assert(buffer.len >= capture_count);
+    assert(slots.len >= capture_count * 2);
     assert(buildMatch(slots) != null);
-    for (0..group_count) |i| {
+    for (0..capture_count) |i| {
         buffer[i] = buildMatch(slots[i * 2 ..]);
     }
-    return .{ .items = buffer[0..group_count] };
+    return .{ .items = buffer[0..capture_count], .info = &vm.prog.capture_info };
 }
 
 const Offset = engine.Offset;

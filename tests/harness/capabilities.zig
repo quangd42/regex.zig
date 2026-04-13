@@ -17,7 +17,7 @@ pub const cap_backend_map = std.EnumArray(Capability, CapBackendMapEntry).init(.
     // Groups and captures.
     .capture_group                  = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
     .noncapture_group               = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
-    .named_capture_group            = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
+    .named_capture_group            = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
 
     // Repetition.
     .rep_zero_or_one                = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
@@ -82,7 +82,7 @@ pub const cap_backend_map = std.EnumArray(Capability, CapBackendMapEntry).init(.
     .empty_match_no_split_codepoint = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
 
     // Input controls.
-    .input_anchored                 = .{ .pikevm = true,  .onepass = false, .dfa = false, .backtrack = false },
+    .input_anchored                 = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
     .input_bounds                   = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
     .input_bytes                    = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },
     .input_utf8_text                = .{ .pikevm = false, .onepass = false, .dfa = false, .backtrack = false },

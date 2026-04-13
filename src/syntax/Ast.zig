@@ -1,16 +1,15 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
+const CaptureInfo = @import("CaptureInfo.zig");
 
 const Ast = @This();
 
 nodes: []Node,
-/// See `Program.group_count`.
-group_count: u16 = 1,
-arena: std.heap.ArenaAllocator.State,
+capture_info: CaptureInfo,
+arena: std.heap.ArenaAllocator,
 
-pub fn deinit(ast: *Ast, gpa: Allocator) void {
-    ast.arena.promote(gpa).deinit();
+pub fn deinit(ast: *Ast) void {
+    ast.capture_info.deinit();
+    ast.arena.deinit();
 }
 
 pub const Node = union(enum) {
@@ -131,32 +130,44 @@ pub const Group = struct {
     kind: Kind,
 
     pub const Kind = union(enum) {
+        /// Capturing group without a name.
         numbered: u16,
-        // named: Named,
+        /// Capturing group with a name.
+        named: Named,
+        /// Non-capturing group with optional inline flags, e.g. `(?:re)` or `(?im:re)`.
         non_capturing: Flags,
     };
 
     pub const Named = struct {
+        /// User-visible capture index. Group 0 is the full match.
         index: u16,
-        name: []const u8,
+        /// True when this capture used the `(?P<name>re)` spelling instead of `(?<name>re)`.
+        p_prefix: bool,
+
+        pub fn bytes(self: @This(), ast: Ast) []const u8 {
+            return ast.capture_info.nameAt(self.index).?;
+        }
     };
 };
 
 pub const Flag = enum {
-    case_insensitive,
-    multi_line,
-    dot_matches_new_line,
-    swap_greed,
+    case_insensitive, // i
+    multi_line, // m
+    dot_matches_new_line, // s
+    swap_greed, // U
 };
 
 pub const Flags = struct {
     items: [max_len]Item = undefined,
     len: u8 = 0,
 
+    /// Parser limit for the number of items in one inline flag list.
     pub const max_len = 5;
 
     pub const Item = union(enum) {
+        /// Separates enabled flags from disabled flags, as in `im-s`.
         disable_op,
+        /// A single inline flag.
         flag: Flag,
     };
 
@@ -240,12 +251,18 @@ fn formatNode(self: @This(), writer: *std.Io.Writer, index: Node.Index) std.Io.W
         .group => |group| {
             try writer.printAsciiChar('(', .{});
             switch (group.kind) {
+                .named => |named| {
+                    try writer.print("?{s}<{s}>", .{
+                        if (named.p_prefix) "P" else "",
+                        named.bytes(self),
+                    });
+                },
+                .numbered => {},
                 .non_capturing => |flags| {
                     try writer.writeAll("?");
                     try formatFlags(writer, flags);
                     try writer.writeAll(":");
                 },
-                else => {},
             }
             try self.formatNode(writer, group.node);
             try writer.printAsciiChar(')', .{});

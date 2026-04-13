@@ -24,7 +24,9 @@ test "local/flags-local/regex-level-ignore-case-inline-disable-match" {
         .pattern = "a(?-i)b",
         .input = .{ .haystack = "Ab", .anchored = false },
         .expected = &[_]?Match{.{ .start = 0, .end = 2 }},
-        .options = .{ .syntax = .{ .case_insensitive = true } },
+        .options = .{ .syntax = .{
+            .case_insensitive = true,
+        } },
         .requires = caps.requires(.{ .inline_flags_global = true, .inline_flags_toggle = true, .ignore_case = true }),
     });
 }
@@ -35,7 +37,9 @@ test "local/flags-local/regex-level-ignore-case-inline-disable-no-match" {
         .pattern = "a(?-i)b",
         .input = .{ .haystack = "AB", .anchored = false },
         .expected = &[_]?Match{},
-        .options = .{ .syntax = .{ .case_insensitive = true } },
+        .options = .{ .syntax = .{
+            .case_insensitive = true,
+        } },
         .requires = caps.requires(.{ .inline_flags_global = true, .inline_flags_toggle = true, .ignore_case = true }),
     });
 }
@@ -46,7 +50,9 @@ test "local/flags-local/regex-level-dotall-inline-disable-match" {
         .pattern = ".(?-s:.)",
         .input = .{ .haystack = "\na", .anchored = false },
         .expected = &[_]?Match{.{ .start = 0, .end = 2 }},
-        .options = .{ .syntax = .{ .dot_matches_new_line = true } },
+        .options = .{ .syntax = .{
+            .dot_matches_new_line = true,
+        } },
         .requires = caps.requires(.{ .dot = true, .inline_flags_scoped = true, .inline_flags_toggle = true, .dot_matches_new_line = true }),
     });
 }
@@ -57,7 +63,9 @@ test "local/flags-local/regex-level-dotall-inline-disable-no-match" {
         .pattern = ".(?-s:.)",
         .input = .{ .haystack = "\n\n", .anchored = false },
         .expected = &[_]?Match{},
-        .options = .{ .syntax = .{ .dot_matches_new_line = true } },
+        .options = .{ .syntax = .{
+            .dot_matches_new_line = true,
+        } },
         .requires = caps.requires(.{ .dot = true, .inline_flags_scoped = true, .inline_flags_toggle = true, .dot_matches_new_line = true }),
     });
 }
@@ -108,34 +116,10 @@ test "local/flags-local/regex-level-multi-line-restores-after-scoped-disable" {
         .pattern = "(?-m:^ab$)|^cd$",
         .input = .{ .haystack = "ab\ncd", .anchored = false },
         .expected = &[_]?Match{.{ .start = 3, .end = 5 }},
-        .options = .{ .syntax = .{ .multi_line = true } },
+        .options = .{ .syntax = .{
+            .multi_line = true,
+        } },
         .requires = caps.requires(.{ .alternation = true, .anchor_line_start = true, .anchor_line_end = true, .inline_flags_scoped = true, .inline_flags_toggle = true, .multi_line = true }),
-    });
-}
-
-test "local/flags-local/captures-in-flagged-group" {
-    try executeCase(.{
-        .name = "local/flags-local/captures-in-flagged-group",
-        .pattern = "(?i:(ab))c",
-        .input = .{ .haystack = "ABc", .anchored = false },
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 3 },
-            .{ .start = 0, .end = 2 },
-        },
-        .requires = caps.requires(.{ .inline_flags_scoped = true, .ignore_case = true }),
-    });
-}
-
-test "local/flags-local/captures-inside-flagged-noncapturing-group" {
-    try executeCase(.{
-        .name = "local/flags-local/captures-inside-flagged-noncapturing-group",
-        .pattern = "(?i:(?:x(ab)))c",
-        .input = .{ .haystack = "XABc", .anchored = false },
-        .expected = &[_]?Match{
-            .{ .start = 0, .end = 4 },
-            .{ .start = 1, .end = 3 },
-        },
-        .requires = caps.requires(.{ .noncapture_group = true, .rep_zero_or_one = true, .inline_flags_scoped = true, .ignore_case = true }),
     });
 }
 
@@ -145,7 +129,9 @@ test "local/flags-local/mixed-inline-flags-set-and-clear-match" {
         .pattern = "(?s-i:a.)",
         .input = .{ .haystack = "a\n", .anchored = false },
         .expected = &[_]?Match{.{ .start = 0, .end = 2 }},
-        .options = .{ .syntax = .{ .case_insensitive = true } },
+        .options = .{ .syntax = .{
+            .case_insensitive = true,
+        } },
         .requires = caps.requires(.{ .dot = true, .inline_flags_scoped = true, .inline_flags_toggle = true, .ignore_case = true, .dot_matches_new_line = true }),
     });
 }
@@ -156,7 +142,9 @@ test "local/flags-local/mixed-inline-flags-set-and-clear-no-match" {
         .pattern = "(?s-i:a.)",
         .input = .{ .haystack = "A\n", .anchored = false },
         .expected = &[_]?Match{},
-        .options = .{ .syntax = .{ .case_insensitive = true } },
+        .options = .{ .syntax = .{
+            .case_insensitive = true,
+        } },
         .requires = caps.requires(.{ .dot = true, .inline_flags_scoped = true, .inline_flags_toggle = true, .ignore_case = true, .dot_matches_new_line = true }),
     });
 }

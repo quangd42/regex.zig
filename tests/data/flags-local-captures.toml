@@ -1,0 +1,11 @@
+[[test]]
+name = "captures-in-flagged-group"
+regex = '(?i:(ab))c'
+haystack = "ABc"
+matches = [[[0, 3], [0, 2]]]
+
+[[test]]
+name = "captures-inside-flagged-noncapturing-group"
+regex = '(?i:(?:x(ab)))c'
+haystack = "XABc"
+matches = [[[0, 4], [1, 3]]]

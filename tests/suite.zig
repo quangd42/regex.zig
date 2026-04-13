@@ -9,4 +9,5 @@ comptime {
     _ = @import("generated/flags.zig");
     _ = @import("generated/multiline.zig");
     _ = @import("generated/flags-local.zig");
+    _ = @import("generated/flags-local-captures.zig");
 }

@@ -156,9 +156,27 @@ const rust_regex_source: SourceConfig = .{
     .matches_format = .matches,
 };
 
+const local_matches_source: SourceConfig = .{
+    .command = "local",
+    .source_dir = "tests/data",
+    .output_dir = "tests/generated",
+    .suite_prefix = "local",
+    .files = &.{"flags-local"},
+    .matches_format = .matches,
+};
+
+const local_captures_source: SourceConfig = .{
+    .command = "local",
+    .source_dir = "tests/data",
+    .output_dir = "tests/generated",
+    .suite_prefix = "local",
+    .files = &.{"flags-local-captures"},
+    .matches_format = .captures,
+};
+
 const fowler_sources = [_]SourceConfig{fowler_source};
 const rust_regex_sources = [_]SourceConfig{rust_regex_source};
-const local_sources = [_]SourceConfig{};
+const local_sources = [_]SourceConfig{ local_matches_source, local_captures_source };
 
 pub fn run() !void {
     try runAll();

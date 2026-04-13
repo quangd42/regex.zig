@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const Program = @import("syntax/Program.zig");
 const PikeVm = @import("engine/PikeVm.zig");
 const errors = @import("errors.zig");
 pub const Diagnostics = errors.Diagnostics;
@@ -10,15 +11,19 @@ const Compiler = @import("syntax/Compiler.zig");
 const types = @import("types.zig");
 pub const Match = types.Match;
 pub const Captures = types.Captures;
+/// Iterator over capture names in capture index order.
+/// The first yielded item always corresponds to group 0, the full match, and is therefore `null`.
+pub const NameIterator = @import("syntax/CaptureInfo.zig").NameIterator;
 
 const Regex = @This();
+prog: Program,
 engine: PikeVm,
 
 pub fn compile(gpa: Allocator, pattern: []const u8, options: Options) !Regex {
     const prog = try Compiler.compile(gpa, pattern, options);
 
     // TODO: choose engine based on pattern
-    return .{ .engine = try .init(gpa, prog) };
+    return .{ .prog = prog, .engine = try .init(gpa, prog) };
 }
 
 pub fn deinit(re: *Regex) void {
@@ -44,7 +49,7 @@ pub fn find(re: *Regex, haystack: []const u8) ?Match {
 }
 
 /// Search for a match and write capture groups into the supplied buffer.
-/// Return Captures wrapping the buffer on match, or null if no match is found.
+/// Return `Captures` wrapping the buffer on match, or `null` if no match is found.
 /// Return `error.BufferTooSmall` if `buffer.len` is smaller than `captureCount()`.
 ///
 /// This answers the question: "does this regex match the haystack and if so, where? and
@@ -56,15 +61,28 @@ pub fn findCaptures(re: *Regex, haystack: []const u8, buffer: []?Match) !?Captur
     return re.engine.findCaptures(.init(haystack), buffer);
 }
 
+/// Returns the user-visible capture index for `name`, or `null` when the name does not exist.
+pub fn captureIndex(re: *Regex, name: []const u8) ?usize {
+    const index = re.prog.capture_info.indexOf(name) orelse return null;
+    return index;
+}
+
+/// Returns an iterator over capture names in capture index order.
+/// Unnamed captures, including group 0 for the full match, are yielded as `null`.
+pub fn captureNames(re: *Regex) NameIterator {
+    return re.prog.capture_info.names();
+}
+
 /// Returns the number of capture groups (including group 0 for the full match).
 /// Useful to determine the required minimum size of buffer for `findCaptures()`.
 pub fn captureCount(re: *Regex) usize {
-    return re.engine.prog.capture_count;
+    return re.prog.capture_info.count;
 }
 
 const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
+const expectEqualStrings = testing.expectEqualStrings;
 
 test "usage: basic compile, match, find, findCaptures" {
     const gpa = testing.allocator;
@@ -157,4 +175,39 @@ test "usage: error with diagnostics" {
         re.deinit();
         return error.TestUnexpectedResult;
     }
+}
+
+test "usage: named capture metadata and lookup" {
+    const gpa = testing.allocator;
+
+    var re = try Regex.compile(gpa, "(?<a>.(?<b>.))(.)(?:.)(?<c>.)", .{});
+    defer re.deinit();
+
+    // Capture names can be queried on the compiled regex.
+    try expectEqual(1, re.captureIndex("a"));
+    try expectEqual(2, re.captureIndex("b"));
+    try expectEqual(4, re.captureIndex("c"));
+    try expectEqual(null, re.captureIndex("missing"));
+
+    // Capture names can also be iterated in capture index order.
+    var names = re.captureNames();
+    const expected_names = [_]?[]const u8{ null, "a", "b", null, "c" };
+    for (expected_names) |expected_name| {
+        const actual_name = names.next() orelse return error.TestUnexpectedResult;
+        if (expected_name) |name| {
+            try expectEqualStrings(name, actual_name.?);
+        } else {
+            try expect(actual_name == null);
+        }
+    }
+    try expectEqual(null, names.next());
+
+    // Named captures can be accessed directly from a match result.
+    const haystack = "abXYZ";
+    var buffer = [_]?Match{null} ** 5;
+    const caps = (try re.findCaptures(haystack, &buffer)).?;
+    try expectEqualStrings("ab", caps.name("a").?.bytes(haystack));
+    try expectEqualStrings("b", caps.name("b").?.bytes(haystack));
+    try expectEqualStrings("Z", caps.name("c").?.bytes(haystack));
+    try expectEqual(null, caps.name("missing"));
 }

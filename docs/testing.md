@@ -12,31 +12,17 @@ This document is the operational standard for tests in this repository.
    - `capabilities.zig`: capability enum (with doc comments) and backend support matrix.
    - prelude: `tests/harness.zig`.
 4. End-to-end coverage:
-   - Public API smoke tests: `tests/api_integration.zig`
+   - Public API integration tests: `tests/api_integration.zig`
    - Fowler suites: `tests/fowler/*.zig`
-   - Future Rust suite files: `tests/rust-regex/`
+   - Generated TOML suites: `tests/generated/*.zig`
    - Suite entrypoint: `tests/suite.zig`
    - Custom simple runner: `tests/test_runner.zig`
 5. Corpus tooling and generated data:
    - Tools: `tools/tests/`
+   - Rust-regex-style and local TOML inputs: `tests/data/`
+   - Generated TOML suites: `tests/generated/*.zig`
    - Generated Fowler suites: `tests/fowler/*.zig`
    - Fowler source TOML + licenses: `tests/fowler/data/`
-
-## Test Writing Standards
-
-1. Prefer readable expectations:
-   - alias `expect` / `expectEqual` from `std.testing`,
-   - avoid noisy casts when Zig can infer type.
-2. Prefer table-driven cases with stable `name` fields.
-3. For suite-backed work, use harness `Case` + `execute`.
-4. On new syntax/features:
-   - add unit tests in parser/compiler/engine files first,
-   - add at least one integration or corpus case,
-   - gate unsupported behavior with capabilities, never silent pass.
-5. Generated corpus cases intentionally omit baseline capabilities
-   (`literal`, `escaped_literal`, `concat`, `capture_group`, leftmost semantics,
-   and core `api_*` calls); harness enforces this baseline per backend at comptime.
-6. Keep `src/Regex.zig` tests usage-oriented and small.
 
 ## Build Steps
 
@@ -49,6 +35,10 @@ This document is the operational standard for tests in this repository.
    - accepts runtime runner args after `--`
 4. `zig build test-bin`
    - builds the suite test binary for debugger use
+5. `zig build gen-tests -- all`
+   - regenerates `tests/generated/*.zig` and `tests/fowler/*.zig`
+6. `zig build gen-tests -- fowler|rust-regex|local`
+   - regenerates one generator source at a time
 
 ## Suite Runner Args
 

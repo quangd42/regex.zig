@@ -6,21 +6,19 @@
 const Program = @This();
 
 /// Contains all states of the NFA graph.
-states: []State,
+states: []const State,
 /// See State.ranges.
-ranges: []ByteRange,
+ranges: []const ByteRange,
 /// See State.alt.
-branches: []State.Id,
+branches: []const State.Id,
 arena: std.heap.ArenaAllocator,
 
 /// Useful to determine the upper bound of allocated ThreadList size.
 matcher_count: u32,
-/// The number of capturing groups in the nfa, including the default group for the full match.
-/// It is sized as u16 so that the slot count = group_count * 2 will fit into an u32. This is
-/// an implementation limit.
-capture_count: u16,
+capture_info: CaptureInfo,
 
 pub fn deinit(p: *Program) void {
+    p.capture_info.deinit();
     p.arena.deinit();
 }
 
@@ -180,3 +178,5 @@ pub fn dump(prog: Program, w: *std.Io.Writer) !void {
 }
 
 const std = @import("std");
+
+const CaptureInfo = @import("CaptureInfo.zig");

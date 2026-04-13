@@ -4,10 +4,10 @@ arena: ArenaAllocator,
 // Not owned by parser
 pattern: []const u8,
 offset: usize,
-group_count: u16 = 1,
 
 nodes: ArrayList(Node) = .empty,
 stack: ArrayList(Frame) = .empty,
+capture_info: CaptureInfo.Builder,
 
 options: Options,
 
@@ -41,13 +41,17 @@ pub fn init(gpa: Allocator, pattern: []const u8, options: Options) Parser {
         .pattern = pattern,
         .offset = 0,
         .arena = .init(gpa),
+        .capture_info = .init(gpa),
         .options = options,
     };
 }
 
 /// Parser entry method. Returns an `Ast` which owns all allocated resources.
 pub fn parse(p: *Parser) Error!Ast {
-    errdefer p.arena.deinit();
+    errdefer {
+        p.capture_info.deinit();
+        p.arena.deinit();
+    }
     var concat = try p.createNodeList();
     const a = p.arena.allocator();
 
@@ -73,8 +77,8 @@ pub fn parse(p: *Parser) Error!Ast {
 
     return .{
         .nodes = try p.nodes.toOwnedSlice(a),
-        .group_count = p.group_count,
-        .arena = p.arena.state,
+        .capture_info = try p.capture_info.finalize(),
+        .arena = p.arena,
     };
 }
 
@@ -213,25 +217,82 @@ const GroupKind = union(enum) {
 
 fn parseGroupKind(p: *Parser, open_paren: Span) !GroupKind {
     assert(p.prev() == '(');
-    if (!p.eatIf('?')) return .{ .group = .{ .numbered = p.nextGroupIndex() } };
+    if (!p.eatIf('?')) return .{ .group = .{
+        .numbered = try p.capture_info.addUnnamedCapture(),
+    } };
+
     const quest_span = p.prevSpan();
+
     if (p.atEnd()) return p.errAt(.group_not_closed, open_paren);
-    const flags = try p.parseFlags();
-    const c = p.eat() orelse return p.errAt(.group_not_closed, open_paren);
-    if (c == ':') return .{ .group = .{ .non_capturing = flags } };
-    assert(c == ')');
-    if (flags.isEmpty()) {
-        // We don't allow empty flags, e.g., `(?)`. We instead interpret
-        // it as a repetition operator missing its argument like Rust.
-        return p.errAt(.repeat_argument_missing, quest_span);
+    switch (p.peek().?) {
+        'P' => {
+            _ = p.eat();
+            const c = p.peek() orelse return p.errAt(.group_not_closed, open_paren);
+            // unsupported:
+            // (?P=name) named backreference
+            // (?P>name) recursive call to named group
+            if (c != '<') return p.errCurrent(.unsupported_feature);
+            _ = p.eat();
+            return p.parseNamedGroup(true);
+        },
+        '<' => {
+            _ = p.eat();
+            const c = p.peek() orelse return p.errAt(.group_not_closed, open_paren);
+            // unsupported lookbehind:
+            // (?<=re) after text matching re
+            // (?<!re) after text not matching
+            if (c == '=' or c == '!') return p.errCurrent(.unsupported_feature);
+            return p.parseNamedGroup(false);
+        },
+        // unsupported (?'name') named capturing
+        '\'' => return p.errCurrent(.unsupported_feature),
+        // unsupported lookahead:
+        // (?=re) before text matching re
+        // (?!re) before text not matching
+        '=', '!' => return p.errCurrent(.unsupported_feature),
+        // and a bunch other
+        '#', '|', '>', '&', '(', 'C', 'R', '0', '+' => return p.errCurrent(.unsupported_feature),
+        else => {
+            const flags = try p.parseFlags();
+            const flag_suffix = p.eat() orelse return p.errAt(.group_not_closed, open_paren);
+            if (flag_suffix == ':') return .{ .group = .{ .non_capturing = flags } };
+            assert(flag_suffix == ')');
+            if (flags.isEmpty()) {
+                // We don't allow empty flags, e.g., `(?)`. We instead interpret
+                // it as a repetition operator missing its argument like Rust.
+                return p.errAt(.repeat_argument_missing, quest_span);
+            }
+            return .{ .flags_only = flags };
+        },
     }
-    return .{ .flags_only = flags };
 }
 
-fn nextGroupIndex(p: *Parser) u16 {
-    const group_index = p.group_count;
-    p.group_count += 1;
-    return group_index;
+fn parseNamedGroup(p: *Parser, p_prefix: bool) !GroupKind {
+    assert(p.prev() == '<');
+    const name_start = p.offset;
+    const name_end = b: while (p.eat()) |c| {
+        switch (c) {
+            '0'...'9', 'a'...'z', 'A'...'Z', '_' => continue,
+            '>' => break :b p.offset - 1,
+            else => return p.errAt(.group_name_invalid, p.spanFrom(name_start - 1)),
+        }
+    } else return p.errAt(.group_name_not_closed, p.spanFrom(name_start - 1));
+    if ((name_end - name_start) == 0) {
+        return p.errAt(.group_name_invalid, p.spanFrom(name_start - 1));
+    }
+
+    const capture_name = p.pattern[name_start..name_end];
+    const name_span: Span = .{ .start = name_start, .end = name_end };
+    const result = try p.capture_info.addNamedCapture(capture_name, name_span);
+    switch (result) {
+        .added => |index| {
+            return .{ .group = .{ .named = .{
+                .index = index,
+                .p_prefix = p_prefix,
+            } } };
+        },
+        .duplicate => |og_span| return p.errWithAuxAt(.group_name_duplicated, name_span, og_span),
+    }
 }
 
 /// Parses inline flags after `(?`.
@@ -577,12 +638,31 @@ fn prev(p: *Parser) u8 {
 const testing = std.testing;
 
 fn expectParseOk(gpa: Allocator, pattern: []const u8, expected: []const u8) !void {
-    var parser: Parser = .init(gpa, pattern, .{});
-    var ast = try parser.parse();
-    defer ast.deinit(gpa);
+    var diagnostics: Diagnostics = undefined;
+    var saw_parse_error = false;
+    var actual: ?[]const u8 = null;
+    errdefer {
+        std.debug.print(
+            "\npattern: {s}\nexpected: {any}\n",
+            .{ pattern, expected },
+        );
+        if (actual) |value| {
+            std.debug.print("actual:   {any}\n", .{value});
+        }
+        if (saw_parse_error) {
+            std.debug.print("diagnostic: {any}\n", .{diagnostics});
+        }
+    }
+
+    var parser: Parser = .init(gpa, pattern, .{ .diag = &diagnostics });
+    var ast = parser.parse() catch |parse_err| {
+        saw_parse_error = true;
+        return parse_err;
+    };
+    defer ast.deinit();
     var buffer: [256]u8 = undefined;
-    const actual = try std.fmt.bufPrint(&buffer, "{f}", .{ast});
-    try testing.expectEqualStrings(expected, actual);
+    actual = try std.fmt.bufPrint(&buffer, "{f}", .{ast});
+    try testing.expectEqualStrings(expected, actual.?);
 }
 
 fn expectParseError(
@@ -595,8 +675,31 @@ fn expectParseError(
     },
 ) !void {
     var diagnostics: Diagnostics = undefined;
+    var saw_parse_error = false;
+    errdefer {
+        std.debug.print(
+            "\npattern: {s}\nexpected: err={s} span={any} aux={any}\n",
+            .{ pattern, @tagName(expected.err), expected.span, expected.aux_span },
+        );
+        if (saw_parse_error) {
+            std.debug.print("actual:   {any}\n", .{diagnostics});
+        } else {
+            std.debug.print("actual:   parse did not return error.Parse\n", .{});
+        }
+    }
+
     var parser: Parser = .init(gpa, pattern, .{ .diag = &diagnostics });
-    try testing.expectError(error.Parse, parser.parse());
+    var mb_ast = parser.parse() catch |parse_err| switch (parse_err) {
+        error.Parse => b: {
+            saw_parse_error = true;
+            break :b null;
+        },
+        error.OutOfMemory => |oom| return oom,
+    };
+    if (mb_ast) |*ast| {
+        ast.deinit();
+        return error.TestExpectedError;
+    }
     switch (diagnostics) {
         .parse => |diag| {
             try testing.expect(diag.span.isValidFor(pattern.len));
@@ -623,6 +726,9 @@ test "parse to string round trip" {
         "a(?:b|c)",
         "a(?iU-sm:b|c)",
         "a(bc(?U-sm)de)",
+        "(?P<name>a)",
+        "(?<name>a)",
+        "a(?P<first>b|c)(?<second>\\d)",
         "\\d|a|\\s",
         "a|", // empty alt
         "|a",
@@ -677,14 +783,14 @@ test "parse to []byte round trip" {
     }
 }
 
-test "group count excludes non-capturing groups" {
+test "group count" {
     const gpa = testing.allocator;
 
-    var parser: Parser = .init(gpa, "(?:a)(b)(?:c)", .{});
+    var parser: Parser = .init(gpa, "(?:a)(b)(?P<c>d)(?<e>f)", .{});
     var ast = try parser.parse();
-    defer ast.deinit(gpa);
+    defer ast.deinit();
 
-    try testing.expectEqual(@as(u16, 2), ast.group_count);
+    try testing.expectEqual(@as(u16, 4), ast.capture_info.count);
 }
 
 test "parse errors" {
@@ -813,16 +919,17 @@ test "parse errors" {
             .end = 1,
         },
         .{
-            .pattern = "(?=a)",
-            .tag = .flag_unsupported,
-            .start = 2,
-            .end = 3,
-        },
-        .{
             .pattern = "(?i",
             .tag = .group_not_closed,
             .start = 0,
             .end = 1,
+        },
+        .{
+            .pattern = "(?<first>b|c)and(?P<first>\\d)",
+            .tag = .group_name_duplicated,
+            .start = 20,
+            .end = 25,
+            .aux_span = .{ .start = 3, .end = 8 },
         },
         .{
             .pattern = "(?-)",
@@ -851,16 +958,52 @@ test "parse errors" {
             .aux_span = .{ .start = 2, .end = 3 },
         },
         .{
-            .pattern = "(?R)",
-            .tag = .flag_unsupported,
-            .start = 2,
-            .end = 3,
-        },
-        .{
             .pattern = "(?imx)",
             .tag = .flag_unsupported,
             .start = 4,
             .end = 5,
+        },
+        .{
+            .pattern = "(?-1)",
+            .tag = .flag_unsupported,
+            .start = 3,
+            .end = 4,
+        },
+        .{
+            .pattern = "(?<>)",
+            .tag = .group_name_invalid,
+            .start = 2,
+            .end = 4,
+        },
+        .{
+            .pattern = "(?P<>)",
+            .tag = .group_name_invalid,
+            .start = 3,
+            .end = 5,
+        },
+        .{
+            .pattern = "(?<na-me>)",
+            .tag = .group_name_invalid,
+            .start = 2,
+            .end = 6,
+        },
+        .{
+            .pattern = "(?P<na-me>)",
+            .tag = .group_name_invalid,
+            .start = 3,
+            .end = 7,
+        },
+        .{
+            .pattern = "(?<name",
+            .tag = .group_name_not_closed,
+            .start = 2,
+            .end = 7,
+        },
+        .{
+            .pattern = "(?P<name",
+            .tag = .group_name_not_closed,
+            .start = 3,
+            .end = 8,
         },
         .{
             .pattern = "[z-a]",
@@ -899,16 +1042,52 @@ test "parse errors" {
     }
 }
 
+test "parse errors for unsupported group syntax" {
+    const gpa = testing.allocator;
+
+    const test_cases = &[_]struct {
+        pattern: []const u8,
+        start: usize,
+        end: usize,
+    }{
+        .{ .pattern = "(?=a)", .start = 2, .end = 3 },
+        .{ .pattern = "(?!a)", .start = 2, .end = 3 },
+        .{ .pattern = "(?<=a)", .start = 3, .end = 4 },
+        .{ .pattern = "(?<!a)", .start = 3, .end = 4 },
+        .{ .pattern = "(?'name'a)", .start = 2, .end = 3 },
+        .{ .pattern = "(?#comment)", .start = 2, .end = 3 },
+        .{ .pattern = "(?|a|b)", .start = 2, .end = 3 },
+        .{ .pattern = "(?>a)", .start = 2, .end = 3 },
+        .{ .pattern = "(?R)", .start = 2, .end = 3 },
+        .{ .pattern = "(?0)", .start = 2, .end = 3 },
+        .{ .pattern = "(?&name)", .start = 2, .end = 3 },
+        .{ .pattern = "(?(cond)a|b)", .start = 2, .end = 3 },
+        .{ .pattern = "(?C)", .start = 2, .end = 3 },
+        .{ .pattern = "(?+1)", .start = 2, .end = 3 },
+        .{ .pattern = "(?P=name)", .start = 3, .end = 4 },
+        .{ .pattern = "(?P>name)", .start = 3, .end = 4 },
+    };
+
+    for (test_cases) |tc| {
+        try expectParseError(gpa, tc.pattern, .{
+            .err = .unsupported_feature,
+            .span = .{ .start = tc.start, .end = tc.end },
+        });
+    }
+}
+
 const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
+const hash_map = std.hash_map;
 
 const Ast = @import("Ast.zig");
 const Node = Ast.Node;
 const Class = Ast.Class;
 const NodeList = ArrayList(Node.Index);
+const CaptureInfo = @import("CaptureInfo.zig");
 const errors = @import("../errors.zig");
 const Diagnostics = errors.Diagnostics;
 const Span = errors.Span;

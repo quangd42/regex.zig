@@ -84,7 +84,7 @@ pub fn execute(
 
     const matched = engine.match(tc.input);
     const found = engine.find(tc.input);
-    const buf = try gpa.alloc(?Regex.Match, prog.capture_count);
+    const buf = try gpa.alloc(?Regex.Match, prog.capture_info.count);
     defer gpa.free(buf);
     const captures = try engine.findCaptures(tc.input, buf);
 

@@ -49,16 +49,16 @@ pub fn compile(gpa: Allocator, pattern: []const u8, options: TopLevelOptions) !P
         .diag = options.diag,
     });
     var ast = try parser.parse();
-    defer ast.deinit(gpa);
+    defer ast.deinit();
     var compiler: Compiler = .{
         .arena = .init(gpa),
         .options = try .fromTopLevel(options),
     };
     errdefer compiler.arena.deinit();
-    return compiler.compileAst(ast);
+    return compiler.compileAst(&ast);
 }
 
-fn compileAst(c: *Compiler, ast: Ast) Error!Program {
+fn compileAst(c: *Compiler, ast: *Ast) Error!Program {
     const a = c.arena.allocator();
 
     // PatchList uses state id 0 as the dangling sentinel, so the start capture for
@@ -75,13 +75,15 @@ fn compileAst(c: *Compiler, ast: Ast) Error!Program {
         .states = try c.states.toOwnedSlice(a),
         .ranges = try c.ranges.toOwnedSlice(a),
         .branches = try c.branches.toOwnedSlice(a),
-        .arena = c.arena,
-        .capture_count = ast.group_count,
+        // Important that we move capture_info **after** fallible actions above, so it
+        // can be cleaned up by `ast.deinit` in the fail path.
+        .capture_info = ast.capture_info.move(),
         .matcher_count = c.matcher_count,
+        .arena = c.arena,
     };
 }
 
-fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) Error!Frag {
+fn compileNode(c: *Compiler, ast: *const Ast, node_index: Ast.Node.Index) Error!Frag {
     const a = c.arena.allocator();
     const node = ast.nodes[node_index];
     switch (node) {
@@ -96,19 +98,19 @@ fn compileNode(c: *Compiler, ast: Ast, node_index: Ast.Node.Index) Error!Frag {
         .class_perl => |cl| return c.namedClass(perlRanges(cl), cl.negated),
         .class => |cl| return c.class(cl),
         .group => |gr| {
-            switch (gr.kind) {
-                .numbered => |group_index| {
-                    const slot_2k = @as(u32, group_index) * 2;
-                    const frag = c.cat(try c.cap(slot_2k), try c.compileNode(ast, gr.node));
-                    return c.cat(frag, try c.cap(slot_2k + 1));
-                },
+            const capture_index = switch (gr.kind) {
+                .numbered => |index| index,
+                .named => |named_capture| named_capture.index,
                 .non_capturing => |flags| {
                     const before: SyntaxOptions = c.options.syntax;
                     defer c.options.syntax = before;
                     c.applySyntaxFlags(flags);
                     return c.compileNode(ast, gr.node);
                 },
-            }
+            };
+            const slot_2k = @as(u32, capture_index) * 2;
+            const frag = c.cat(try c.cap(slot_2k), try c.compileNode(ast, gr.node));
+            return c.cat(frag, try c.cap(slot_2k + 1));
         },
         .set_flags => |flags| {
             c.applySyntaxFlags(flags);
@@ -346,7 +348,7 @@ fn star(c: *Compiler, f1: Frag, lazy: bool) !Frag {
     return c.loop(f1, lazy);
 }
 
-fn compileNTimes(c: *Compiler, ast: Ast, node_index: Ast.Node.Index, count: u16) !Frag {
+fn compileNTimes(c: *Compiler, ast: *const Ast, node_index: Ast.Node.Index, count: u16) !Frag {
     if (count == 0) return c.empty();
 
     var frag = try c.compileNode(ast, node_index);
@@ -915,6 +917,20 @@ test "non-capturing group" {
         g.char('b', 4),
         g.capt(3, 5),
         g.capt(1, 6),
+        g.match(),
+    });
+}
+
+test "named capturing group" {
+    try expectProgram("(?<first>a)(?P<last>b)", &.{
+        g.capt(0, 1),
+        g.capt(2, 2),
+        g.char('a', 3),
+        g.capt(3, 4),
+        g.capt(4, 5),
+        g.char('b', 6),
+        g.capt(5, 7),
+        g.capt(1, 8),
         g.match(),
     });
 }

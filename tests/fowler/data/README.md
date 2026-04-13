@@ -1,6 +1,6 @@
-These files are taken from rust-regex repository. As rust-regex author [notes](https://github.com/rust-lang/regex/blob/master/testdata/fowler/dat/README),
-test data was taken from the Go distribution, which was in turn taken from the
-testregex test suite.
+These files are taken from the Rust `regex` repository. As its Fowler README
+notes, the test data was taken from the Go distribution, which was in turn
+taken from the `testregex` test suite.
 
 The LICENSE in this directory corresponds to the LICENSE that the data was
 originally released under.

@@ -51,6 +51,77 @@ test "captures" {
     try expectEqual(null, caps.items[2]);
 }
 
+test "named capture metadata and lookup" {
+    var re = try Regex.compile(gpa, "(?<a>.(?<b>.))(.)(?:.)(?<c>.)", .{});
+    defer re.deinit();
+
+    try expectEqual(@as(?usize, 1), re.captureIndex("a"));
+    try expectEqual(@as(?usize, 2), re.captureIndex("b"));
+    try expectEqual(@as(?usize, 4), re.captureIndex("c"));
+    try expectEqual(@as(?usize, null), re.captureIndex("missing"));
+
+    const err = error.TestUnexpectedResult;
+    var names = re.captureNames();
+    const name0 = names.next() orelse return err;
+    try expect(name0 == null);
+    try expectEqualStrings("a", (names.next() orelse return err).?);
+    try expectEqualStrings("b", (names.next() orelse return err).?);
+    const name3 = names.next() orelse return err;
+    try expect(name3 == null);
+    try expectEqualStrings("c", (names.next() orelse return err).?);
+    try expectEqual(null, names.next());
+
+    var buffer = [_]?Match{null} ** 5;
+    const caps = (try re.findCaptures("abXYZ", &buffer)).?;
+    try expectEqual(Match{ .start = 0, .end = 2 }, caps.name("a").?);
+    try expectEqual(Match{ .start = 1, .end = 2 }, caps.name("b").?);
+    try expectEqual(Match{ .start = 4, .end = 5 }, caps.name("c").?);
+    try expectEqualStrings("ab", caps.name("a").?.bytes("abXYZ"));
+    try expectEqualStrings("b", caps.name("b").?.bytes("abXYZ"));
+    try expectEqualStrings("Z", caps.name("c").?.bytes("abXYZ"));
+    try expectEqual(null, caps.name("missing"));
+}
+
+test "named captures can be absent in a match" {
+    var re = try Regex.compile(gpa, "(?<letters>[A-Za-z]+)(?:(?<digits>\\d+)|(?<punct>[!?]+))", .{});
+    defer re.deinit();
+
+    var buffer = [_]?Match{null} ** 4;
+
+    {
+        const caps = (try re.findCaptures("abc123", &buffer)).?;
+        try expectEqualStrings("abc123", caps.get(0).?.bytes("abc123"));
+        try expectEqualStrings("abc", caps.name("letters").?.bytes("abc123"));
+        try expectEqualStrings("123", caps.name("digits").?.bytes("abc123"));
+        try expectEqual(null, caps.name("punct"));
+    }
+    {
+        const caps = (try re.findCaptures("abc!!", &buffer)).?;
+        try expectEqualStrings("abc", caps.name("letters").?.bytes("abc!!"));
+        try expectEqualStrings("!!", caps.name("punct").?.bytes("abc!!"));
+        try expectEqual(null, caps.name("digits"));
+    }
+}
+
+test "duplicate named captures" {
+    const pattern = "(?<x>a)(?P<x>b)";
+
+    var diag: Diagnostics = undefined;
+    try expectError(error.Parse, Regex.compile(gpa, pattern, .{
+        .diag = &diag,
+    }));
+
+    switch (diag) {
+        .parse => |parse_diag| {
+            try expectEqual(.group_name_duplicated, parse_diag.err);
+            try expectEqual(Span{ .start = 11, .end = 12 }, parse_diag.span);
+            try expectEqual(Span{ .start = 3, .end = 4 }, parse_diag.aux_span);
+            try expect(parse_diag.span.isValidFor(pattern.len));
+        },
+        .compile => return error.TestUnexpectedResult,
+    }
+}
+
 test "non capturing groups" {
     {
         var re = try Regex.compile(gpa, "(?i)Re", .{});
@@ -449,6 +520,7 @@ const std = @import("std");
 const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
+const expectEqualStrings = testing.expectEqualStrings;
 const expectError = testing.expectError;
 const gpa = testing.allocator;
 
