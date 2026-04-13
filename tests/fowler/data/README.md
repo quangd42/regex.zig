@@ -1,25 +1,16 @@
-# Fowler Upstream Data
+These files are taken from rust-regex repository. As rust-regex author [notes](https://github.com/rust-lang/regex/blob/master/testdata/fowler/dat/README),
+test data was taken from the Go distribution, which was in turn taken from the
+testregex test suite.
 
-These files are vendored from Rust's `regex` repository:
+The LICENSE in this directory corresponds to the LICENSE that the data was
+originally released under.
 
 - Repository: https://github.com/rust-lang/regex
 - Path: `testdata/fowler/`
 - Commit: `d8761c00ed25c5899e3dcfb0f17e827b8e41530a`
 - Retrieved: 2026-03-18
 
-Included upstream files:
-
-- `basic.toml`
-- `repetition.toml`
-- `nullsubexpr.toml`
-- `dat/`
-
-License:
-
-- Dual-licensed under MIT and Apache-2.0.
-- See `LICENSE-MIT` and `LICENSE-APACHE` in this directory.
-
-Transformation:
+Usage:
 
 - `zig build gen-tests -- fowler` reads these TOML files and generates
   Zig case tables under `tests/fowler/`.

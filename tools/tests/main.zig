@@ -2,10 +2,12 @@
 //! Usage:
 //!   zig build gen-tests -- all      # default
 //!   zig build gen-tests -- fowler
+//!   zig build gen-tests -- rust-regex
+//!   zig build gen-tests -- local
 
 const std = @import("std");
 const mem = std.mem;
-const gen_fowler = @import("gen_fowler.zig");
+const gen_toml_tests = @import("gen_toml_tests.zig");
 
 pub fn main() !void {
     const gpa = std.heap.page_allocator;
@@ -14,12 +16,19 @@ pub fn main() !void {
 
     const cmd = if (args.len >= 2) args[1] else "all";
     if (mem.eql(u8, cmd, "all")) {
-        // For now, "all" maps to Fowler until additional Rust TOML suites land.
-        try gen_fowler.run();
+        try gen_toml_tests.runAll();
         return;
     }
     if (mem.eql(u8, cmd, "fowler")) {
-        try gen_fowler.run();
+        try gen_toml_tests.runFowler();
+        return;
+    }
+    if (mem.eql(u8, cmd, "rust-regex")) {
+        try gen_toml_tests.runRustRegex();
+        return;
+    }
+    if (mem.eql(u8, cmd, "local")) {
+        try gen_toml_tests.runLocal();
         return;
     }
 
@@ -28,6 +37,8 @@ pub fn main() !void {
         \\usage:
         \\  zig build gen-tests -- all
         \\  zig build gen-tests -- fowler
+        \\  zig build gen-tests -- rust-regex
+        \\  zig build gen-tests -- local
         \\
     , .{cmd});
     return error.InvalidArgument;

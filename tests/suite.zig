@@ -6,4 +6,6 @@ comptime {
     _ = @import("fowler/basic.zig");
     _ = @import("fowler/repetition.zig");
     _ = @import("fowler/nullsubexpr.zig");
+    _ = @import("generated/flags.zig");
+    _ = @import("generated/multiline.zig");
 }

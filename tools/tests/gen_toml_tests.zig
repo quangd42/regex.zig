@@ -1,30 +1,82 @@
-//! Fowler corpus generator used by `tools/tests/main.zig`.
-//! It consumes Rust's Fowler TOML files via `zig-toml` and emits
-//! deterministic per-case Zig tests in `tests/fowler/`.
+//! Corpus generator used by `tools/tests/main.zig`.
+//! It consumes Rust regex style TOML test suites via `zig-toml` and emits
+//! per-case Zig tests under `tests/`.
 
 const std = @import("std");
 const toml = @import("toml");
+const Allocator = std.mem.Allocator;
 
 const SuiteSpec = struct {
     source_path: []const u8,
     output_path: []const u8,
+    suite_name: []const u8,
+    generator_cmd: []const u8,
+    matches_format: MatchesFormat,
 };
 
-const RawDoc = struct {
-    @"test": []const RawCase,
+const MatchesFormat = enum {
+    matches,
+    captures,
+};
+
+const SourceConfig = struct {
+    command: []const u8,
+    source_dir: []const u8,
+    output_dir: []const u8,
+    suite_prefix: []const u8,
+    files: []const []const u8,
+    matches_format: MatchesFormat,
 };
 
 const RawCase = struct {
     name: []const u8,
     regex: []const u8,
     haystack: []const u8,
-    matches: []const []const []const i64,
+    expected_groups: []const MatchGroup,
     @"match-limit": usize = 1,
     compiles: ?bool = null,
     anchored: bool = false,
     unescape: bool = false,
     @"case-insensitive": bool = false,
+    @"multi-line": bool = false,
+    @"dot-matches-new-line": bool = false,
+    @"swap-greed": bool = false,
+    unicode: ?bool = null,
 };
+
+const Span = [2]usize;
+const MatchGroup = ?Span;
+
+fn ParsedCase(comptime MatchesT: type) type {
+    return struct {
+        name: []const u8,
+        regex: []const u8,
+        haystack: []const u8,
+        matches: MatchesT,
+        @"match-limit": usize = 1,
+        compiles: ?bool = null,
+        anchored: bool = false,
+        unescape: bool = false,
+        @"case-insensitive": bool = false,
+        @"multi-line": bool = false,
+        @"dot-matches-new-line": bool = false,
+        @"swap-greed": bool = false,
+        unicode: ?bool = null,
+    };
+}
+
+fn ParsedFile(comptime MatchesT: type) type {
+    return struct {
+        @"test": []const ParsedCase(MatchesT),
+    };
+}
+
+const Matches = []const Span;
+const Captures = []const []const []const usize;
+const MatchesFile = ParsedFile(Matches);
+const CapturesFile = ParsedFile(Captures);
+
+const GroupsError = error{InvalidMatchGroupShape} || Allocator.Error;
 
 const CapKey = enum {
     // Syntax.
@@ -86,51 +138,183 @@ const CapKey = enum {
 
 const CapKeySet = std.EnumSet(CapKey);
 
+const fowler_source: SourceConfig = .{
+    .command = "fowler",
+    .source_dir = "tests/fowler/data",
+    .output_dir = "tests/fowler",
+    .suite_prefix = "fowler",
+    .files = &.{ "basic", "repetition", "nullsubexpr" },
+    .matches_format = .captures,
+};
+
+const rust_regex_source: SourceConfig = .{
+    .command = "rust-regex",
+    .source_dir = "tests/data",
+    .output_dir = "tests/generated",
+    .suite_prefix = "rust-regex",
+    .files = &.{ "flags", "multiline" },
+    .matches_format = .matches,
+};
+
+const fowler_sources = [_]SourceConfig{fowler_source};
+const rust_regex_sources = [_]SourceConfig{rust_regex_source};
+const local_sources = [_]SourceConfig{};
+
 pub fn run() !void {
-    const suites = [_]SuiteSpec{
-        .{
-            .source_path = "tests/fowler/data/basic.toml",
-            .output_path = "tests/fowler/basic.zig",
-        },
-        .{
-            .source_path = "tests/fowler/data/repetition.toml",
-            .output_path = "tests/fowler/repetition.zig",
-        },
-        .{
-            .source_path = "tests/fowler/data/nullsubexpr.toml",
-            .output_path = "tests/fowler/nullsubexpr.zig",
-        },
-    };
+    try runAll();
+}
+
+pub fn runAll() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
 
     var total: usize = 0;
-    for (suites) |suite| {
-        const count = try generateSuite(suite);
+    total += try generateSources(arena.allocator(), "fowler", &fowler_sources);
+    total += try generateSources(arena.allocator(), "rust-regex", &rust_regex_sources);
+    total += try generateSources(arena.allocator(), "local", &local_sources);
+    std.debug.print("TOML test generation complete ({d} total cases)\n", .{total});
+}
+
+pub fn runFowler() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    _ = try generateSources(arena.allocator(), "fowler", &fowler_sources);
+}
+
+pub fn runRustRegex() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    _ = try generateSources(arena.allocator(), "rust-regex", &rust_regex_sources);
+}
+
+pub fn runLocal() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    _ = try generateSources(arena.allocator(), "local", &local_sources);
+}
+
+fn generateSources(alloc: Allocator, command: []const u8, sources: []const SourceConfig) !usize {
+    var total: usize = 0;
+    for (sources) |source| {
+        total += try generateSource(alloc, source);
+    }
+    std.debug.print("{s} generation complete ({d} total cases)\n", .{ command, total });
+    return total;
+}
+
+fn generateSource(alloc: Allocator, source: SourceConfig) !usize {
+    var total: usize = 0;
+    for (source.files) |stem| {
+        var source_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        var output_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        var suite_name_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const suite = SuiteSpec{
+            .source_path = try std.fmt.bufPrint(
+                &source_path_buf,
+                "{s}/{s}.toml",
+                .{ source.source_dir, stem },
+            ),
+            .output_path = try std.fmt.bufPrint(
+                &output_path_buf,
+                "{s}/{s}.zig",
+                .{ source.output_dir, stem },
+            ),
+            .suite_name = try std.fmt.bufPrint(
+                &suite_name_buf,
+                "{s}/{s}",
+                .{ source.suite_prefix, stem },
+            ),
+            .generator_cmd = source.command,
+            .matches_format = source.matches_format,
+        };
+        const count = try generateSuite(alloc, suite);
         total += count;
         std.debug.print(
             "generated {s} from {s} ({d} cases)\n",
             .{ suite.output_path, suite.source_path, count },
         );
     }
-    std.debug.print("fowler generation complete ({d} total cases)\n", .{total});
+    return total;
 }
 
-fn generateSuite(spec: SuiteSpec) !usize {
+fn generateSuite(alloc: Allocator, spec: SuiteSpec) !usize {
     const cwd = std.fs.cwd();
-    const input = try cwd.readFileAlloc(
-        std.heap.page_allocator,
-        spec.source_path,
-        std.math.maxInt(usize),
-    );
-    defer std.heap.page_allocator.free(input);
+    const input = try cwd.readFileAlloc(alloc, spec.source_path, std.math.maxInt(usize));
 
-    var parser = toml.Parser(RawDoc).init(std.heap.page_allocator);
-    defer parser.deinit();
+    const cases = switch (spec.matches_format) {
+        .matches => blk: {
+            var parser = toml.Parser(MatchesFile).init(alloc);
+            defer parser.deinit();
 
-    const parsed = try parser.parseString(input);
-    defer parsed.deinit();
+            const parsed = try parser.parseString(input);
+            break :blk try normalizeCases(Matches, alloc, parsed.value.@"test", firstMatchFromMatches);
+        },
+        .captures => blk: {
+            var parser = toml.Parser(CapturesFile).init(alloc);
+            defer parser.deinit();
 
-    try writeGeneratedFile(spec, parsed.value.@"test");
-    return parsed.value.@"test".len;
+            const parsed = try parser.parseString(input);
+            break :blk try normalizeCases(Captures, alloc, parsed.value.@"test", firstMatchFromCaptures);
+        },
+    };
+    try writeGeneratedFile(spec, cases);
+    return cases.len;
+}
+
+fn normalizeCases(
+    comptime MatchesT: type,
+    alloc: Allocator,
+    parsed_cases: []const ParsedCase(MatchesT),
+    comptime extractGroups: *const fn (Allocator, MatchesT) GroupsError![]const MatchGroup,
+) ![]const RawCase {
+    const cases = try alloc.alloc(RawCase, parsed_cases.len);
+    for (parsed_cases, 0..) |parsed_case, i| {
+        cases[i] = initRawCase(parsed_case, try extractGroups(alloc, parsed_case.matches));
+    }
+    return cases;
+}
+
+fn initRawCase(parsed_case: anytype, expected_groups: []const MatchGroup) RawCase {
+    return .{
+        .name = parsed_case.name,
+        .regex = parsed_case.regex,
+        .haystack = parsed_case.haystack,
+        .expected_groups = expected_groups,
+        .@"match-limit" = parsed_case.@"match-limit",
+        .compiles = parsed_case.compiles,
+        .anchored = parsed_case.anchored,
+        .unescape = parsed_case.unescape,
+        .@"case-insensitive" = parsed_case.@"case-insensitive",
+        .@"multi-line" = parsed_case.@"multi-line",
+        .@"dot-matches-new-line" = parsed_case.@"dot-matches-new-line",
+        .@"swap-greed" = parsed_case.@"swap-greed",
+        .unicode = parsed_case.unicode,
+    };
+}
+
+fn firstMatchFromMatches(alloc: Allocator, matches: Matches) GroupsError![]const MatchGroup {
+    if (matches.len == 0) return alloc.alloc(MatchGroup, 0);
+
+    const groups = try alloc.alloc(MatchGroup, 1);
+    groups[0] = matches[0];
+    return groups;
+}
+
+fn firstMatchFromCaptures(alloc: Allocator, matches: Captures) GroupsError![]const MatchGroup {
+    if (matches.len == 0) return alloc.alloc(MatchGroup, 0);
+
+    const first = matches[0];
+    const groups = try alloc.alloc(MatchGroup, first.len);
+    for (first, 0..) |span, i| {
+        groups[i] = try parseCaptureGroup(span);
+    }
+    return groups;
+}
+
+fn parseCaptureGroup(span: []const usize) GroupsError!MatchGroup {
+    if (span.len == 0) return null;
+    if (span.len != 2) return error.InvalidMatchGroupShape;
+    return .{ span[0], span[1] };
 }
 
 fn writeGeneratedFile(spec: SuiteSpec, cases: []const RawCase) !void {
@@ -144,9 +328,7 @@ fn writeGeneratedFile(spec: SuiteSpec, cases: []const RawCase) !void {
     var file_writer_buf: [8192]u8 = undefined;
     var file_writer = file.writer(&file_writer_buf);
     const w = &file_writer.interface;
-    const suite_stem = std.fs.path.stem(spec.output_path);
-
-    try w.writeAll("//! GENERATED by `zig build gen-tests -- fowler`.\n");
+    try w.print("//! GENERATED by `zig build gen-tests -- {s}`.\n", .{spec.generator_cmd});
     try w.print("//! Source: {s}\n", .{spec.source_path});
     try w.writeAll("//! DO NOT EDIT.\n\n");
     try w.writeAll("const std = @import(\"std\");\n");
@@ -166,19 +348,19 @@ fn writeGeneratedFile(spec: SuiteSpec, cases: []const RawCase) !void {
         \\}
         \\
     );
-    try writeSuiteTests(w, suite_stem, cases);
+    try writeSuiteTests(w, spec, cases);
     try w.flush();
 }
 
 fn writeCaseLiteral(
     w: *std.Io.Writer,
-    suite_stem: []const u8,
+    spec: SuiteSpec,
     tc: RawCase,
     indent: []const u8,
 ) !void {
     try w.writeByte('\n');
     try w.print("{s}    .name = ", .{indent});
-    try w.print("\"fowler/{s}/{s}\"", .{ suite_stem, tc.name });
+    try w.print("\"{s}/{s}\"", .{ spec.suite_name, tc.name });
     try w.writeAll(",\n");
 
     try w.print("{s}    .pattern = ", .{indent});
@@ -192,38 +374,29 @@ fn writeCaseLiteral(
     try writeBool(w, tc.anchored);
     try w.writeAll(" },\n");
 
-    const empty_groups = &[_][]const i64{};
-    const groups = if (tc.matches.len > 0) tc.matches[0] else empty_groups;
+    const groups = tc.expected_groups;
 
     if (groups.len == 0) {
         try w.print("{s}    .expected = &[_]?Match{{}},\n", .{indent});
     } else if (groups.len == 1) {
         try w.print("{s}    .expected = &[_]?Match{{", .{indent});
         const group = groups[0];
-        if (group.len == 0) {
-            try w.writeAll("null},\n");
-        } else {
-            if (group.len != 2) return error.InvalidMatchGroupShape;
-            if (group[0] < 0 or group[1] < 0) return error.InvalidMatchGroupShape;
-            const start: usize = @intCast(group[0]);
-            const end: usize = @intCast(group[1]);
-            try w.print(".{{ .start = {d}, .end = {d} }}", .{ start, end });
+        if (group) |gr| {
+            try w.print(".{{ .start = {d}, .end = {d} }}", .{ gr[0], gr[1] });
             try w.writeAll("},\n");
+        } else {
+            try w.writeAll("null},\n");
         }
     } else {
         try w.print("{s}    .expected = &[_]?Match{{", .{indent});
         try w.writeAll("\n");
         for (groups) |group| {
             try w.print("{s}        ", .{indent});
-            if (group.len == 0) {
+            if (group) |gr| {
+                try w.print(".{{ .start = {d}, .end = {d} }},\n", .{ gr[0], gr[1] });
+            } else {
                 try w.writeAll("null,\n");
-                continue;
             }
-            if (group.len != 2) return error.InvalidMatchGroupShape;
-            if (group[0] < 0 or group[1] < 0) return error.InvalidMatchGroupShape;
-            const start: usize = @intCast(group[0]);
-            const end: usize = @intCast(group[1]);
-            try w.print(".{{ .start = {d}, .end = {d} }},\n", .{ start, end });
         }
         try w.print("{s}    }},\n", .{indent});
     }
@@ -232,11 +405,13 @@ fn writeCaseLiteral(
     if (tc.anchored) requires.insert(.input_anchored);
     if (tc.unescape) requires.insert(.case_unescape);
     if (tc.@"case-insensitive") {
-        try w.print(
-            "{s}    .options = .{{ .syntax = .{{ .case_insensitive = true }} }},\n",
-            .{indent},
-        );
         requires.insert(.ignore_case);
+    }
+    if (tc.@"multi-line") requires.insert(.multi_line);
+    if (tc.@"dot-matches-new-line") requires.insert(.dot_matches_new_line);
+    if (tc.@"swap-greed") requires.insert(.swap_greed);
+    if (tc.unicode) |unicode| {
+        if (unicode) requires.insert(.unicode_mode);
     }
     if (tc.@"match-limit" != 1) requires.insert(.case_match_limit);
     if (tc.compiles) |compiles| {
@@ -244,6 +419,26 @@ fn writeCaseLiteral(
     }
 
     if (requires.count() > 0) {
+        if (tc.@"case-insensitive" or
+            tc.@"multi-line" or
+            tc.@"dot-matches-new-line" or
+            tc.@"swap-greed")
+        {
+            try w.print("{s}    .options = .{{ .syntax = .{{\n", .{indent});
+            if (tc.@"case-insensitive") {
+                try w.print("{s}        .case_insensitive = true,\n", .{indent});
+            }
+            if (tc.@"multi-line") {
+                try w.print("{s}        .multi_line = true,\n", .{indent});
+            }
+            if (tc.@"dot-matches-new-line") {
+                try w.print("{s}        .dot_matches_new_line = true,\n", .{indent});
+            }
+            if (tc.@"swap-greed") {
+                try w.print("{s}        .swap_greed = true,\n", .{indent});
+            }
+            try w.print("{s}    }} }},\n", .{indent});
+        }
         try w.print("{s}    .requires = caps.requires(.{{ ", .{indent});
         var first = true;
         inline for (std.meta.fields(CapKey)) |field| {
@@ -287,14 +482,14 @@ fn writeBool(w: *std.Io.Writer, b: bool) !void {
     if (b) try w.writeAll("true") else try w.writeAll("false");
 }
 
-fn writeSuiteTests(w: *std.Io.Writer, suite_stem: []const u8, cases: []const RawCase) !void {
+fn writeSuiteTests(w: *std.Io.Writer, spec: SuiteSpec, cases: []const RawCase) !void {
     for (cases) |tc| {
         try w.print(
             \\
-            \\test "fowler/{s}/{s}" {{
+            \\test "{s}/{s}" {{
             \\    try executeCase(.{{
-        , .{ suite_stem, tc.name });
-        try writeCaseLiteral(w, suite_stem, tc, "    ");
+        , .{ spec.suite_name, tc.name });
+        try writeCaseLiteral(w, spec, tc, "    ");
         try w.writeAll(
             \\    });
             \\}
