@@ -4,16 +4,16 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
-const Program = @import("../syntax/Program.zig");
-const regex = @import("../types.zig");
-const Match = regex.Match;
-const Captures = regex.Captures;
-const engine = @import("types.zig");
+const Program = @import("../Program.zig");
+const StateId = Program.StateId;
+const Offset = Program.Offset;
+const results = @import("../results.zig");
+const Match = results.Match;
+const Captures = results.Captures;
 const assertion = @import("assertion.zig");
-const StateId = engine.StateId;
-const Input = engine.Input;
-const SparseSet = @import("SparseSet.zig");
 const GenerationSet = @import("generation_set.zig").GenerationSet;
+const Input = @import("Input.zig");
+const SparseSet = @import("SparseSet.zig");
 
 const Vm = @This();
 
@@ -283,7 +283,6 @@ fn buildCaptures(vm: *Vm, slots: []const Offset, buffer: []?Match) ?Captures {
     return .{ .items = buffer[0..capture_count], .info = &vm.prog.capture_info };
 }
 
-const Offset = engine.Offset;
 /// Sentinel value for null offset. There is no check for null because in practice an input of anything
 /// close to this size might already cause other problems before it gets here.
 const null_offset = std.math.maxInt(Offset);

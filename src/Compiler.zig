@@ -1160,9 +1160,9 @@ const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 
 const Ast = @import("Ast.zig");
-const errors = @import("../errors.zig");
+const errors = @import("errors.zig");
 const Diagnostics = errors.Diagnostics;
-const TopLevelOptions = @import("../Options.zig");
+const TopLevelOptions = @import("Options.zig");
 const SyntaxOptions = TopLevelOptions.Syntax;
 const Parser = @import("Parser.zig");
 const Program = @import("Program.zig");

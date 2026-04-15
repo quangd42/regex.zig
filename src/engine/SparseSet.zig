@@ -1,8 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const types = @import("types.zig");
-pub const StateId = types.StateId;
+const Input = @import("Input.zig");
+pub const StateId = @import("../Program.zig").StateId;
 
 const SparseSet = @This();
 

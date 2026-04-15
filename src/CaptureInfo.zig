@@ -7,7 +7,7 @@ const Allocator = std.mem.Allocator;
 const hash_map = std.hash_map;
 const assert = std.debug.assert;
 
-const Span = @import("../errors.zig").Span;
+const Span = @import("errors.zig").Span;
 
 pub const CaptureInfo = @This();
 

@@ -1,19 +1,20 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const Program = @import("syntax/Program.zig");
-const PikeVm = @import("engine/PikeVm.zig");
+const Compiler = @import("Compiler.zig");
+const engines = @import("engine.zig");
+const PikeVm = engines.PikeVm;
 const errors = @import("errors.zig");
 pub const Diagnostics = errors.Diagnostics;
 pub const Span = errors.Span;
-pub const Options = @import("Options.zig");
-const Compiler = @import("syntax/Compiler.zig");
-const types = @import("types.zig");
-pub const Match = types.Match;
-pub const Captures = types.Captures;
 /// Iterator over capture names in capture index order.
 /// The first yielded item always corresponds to group 0, the full match, and is therefore `null`.
-pub const NameIterator = @import("syntax/CaptureInfo.zig").NameIterator;
+pub const NameIterator = @import("CaptureInfo.zig").NameIterator;
+pub const Options = @import("Options.zig");
+const Program = @import("Program.zig");
+const results = @import("results.zig");
+pub const Match = results.Match;
+pub const Captures = results.Captures;
 
 const Regex = @This();
 prog: Program,

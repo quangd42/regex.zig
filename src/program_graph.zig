@@ -1,3 +1,5 @@
+//! Internal graph helpers for viewing and analyzing a compiled `Program`.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;

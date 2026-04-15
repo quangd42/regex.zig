@@ -1088,7 +1088,7 @@ const Node = Ast.Node;
 const Class = Ast.Class;
 const NodeList = ArrayList(Node.Index);
 const CaptureInfo = @import("CaptureInfo.zig");
-const errors = @import("../errors.zig");
+const errors = @import("errors.zig");
 const Diagnostics = errors.Diagnostics;
 const Span = errors.Span;
 

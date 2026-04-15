@@ -1,5 +1,5 @@
 const std = @import("std");
-const CaptureInfo = @import("syntax/CaptureInfo.zig");
+const CaptureInfo = @import("CaptureInfo.zig");
 
 /// `Match` contains the half-open [start, end) indice range of the match in haystack.
 /// It represents the boundary of a capture group in the haystack for `Captures`. It is
