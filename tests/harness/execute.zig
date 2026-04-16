@@ -84,9 +84,7 @@ pub fn execute(
 
     const matched = engine.match(tc.input);
     const found = engine.find(tc.input);
-    const buf = try gpa.alloc(?Regex.Match, prog.capture_info.count);
-    defer gpa.free(buf);
-    const captures = try engine.findCaptures(tc.input, buf);
+    const captures = engine.findCaptures(tc.input);
 
     const match_failed = checkMatch(tc, matched);
     const find_failed = checkFind(tc, found);
@@ -119,9 +117,10 @@ fn checkCaptures(tc: Case, captures: ?Regex.Captures) ?CaptureFailure {
     }
 
     const actual_captures = captures orelse return .missing;
-    if (actual_captures.items.len != tc.expected.len) return .len;
+    if (actual_captures.len() != tc.expected.len) return .len;
 
-    for (actual_captures.items, tc.expected) |actual, expected| {
+    for (tc.expected, 0..) |expected, i| {
+        const actual = actual_captures.get(i);
         if (!std.meta.eql(actual, expected)) return .value;
     }
 
@@ -179,10 +178,15 @@ fn printCapturesFailure(
     };
     try w.print("    - {s}\n", .{reason});
     try w.print("      ├─ expected groups_len: {d}\n", .{tc.expected.len});
-    try w.print("      ├─ actual   groups_len: {d}\n", .{if (captures) |capt| capt.items.len else 0});
+    try w.print("      ├─ actual   groups_len: {d}\n", .{if (captures) |capt| capt.len() else 0});
     try w.print("      ├─ expected   captures: {any}\n", .{tc.expected});
     if (captures) |capt| {
-        try w.print("      └─ actual     captures: {any}\n", .{capt.items});
+        try w.writeAll("      └─ actual     captures: [");
+        for (0..capt.len()) |i| {
+            if (i > 0) try w.writeAll(", ");
+            try w.print("{any}", .{capt.get(i)});
+        }
+        try w.writeAll("]\n");
     } else {
         try w.writeAll("      └─ actual     captures: null\n");
     }

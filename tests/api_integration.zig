@@ -39,16 +39,26 @@ test "captures" {
 
     try expectEqual(3, re.captureCount());
 
-    var buffer = [_]?Match{null} ** 3;
-    const maybe_caps = try re.findCaptures("zabx", &buffer);
+    const maybe_caps = re.findCaptures("zabx");
     try expect(maybe_caps != null);
 
     const caps = maybe_caps.?;
     const ab_match: ?Match = .{ .start = 1, .end = 3 };
-    try expectEqual(3, caps.items.len);
-    try expectEqual(ab_match, caps.items[0]);
-    try expectEqual(ab_match, caps.items[1]);
-    try expectEqual(null, caps.items[2]);
+    try expectEqual(3, caps.len());
+    try expectEqual(ab_match, caps.get(0));
+    try expectEqual(ab_match, caps.get(1));
+    try expectEqual(null, caps.get(2));
+
+    // Preserve capture data
+    var stored = [_]?Match{null} ** 3;
+    const copied = caps.copy(&stored);
+
+    _ = re.find("no match here");
+
+    try expectEqual(3, copied.len);
+    try expectEqual(Match{ .start = 1, .end = 3 }, copied[0].?);
+    try expectEqual(Match{ .start = 1, .end = 3 }, copied[1].?);
+    try expectEqual(null, copied[2]);
 }
 
 test "named capture metadata and lookup" {
@@ -71,8 +81,7 @@ test "named capture metadata and lookup" {
     try expectEqualStrings("c", (names.next() orelse return err).?);
     try expectEqual(null, names.next());
 
-    var buffer = [_]?Match{null} ** 5;
-    const caps = (try re.findCaptures("abXYZ", &buffer)).?;
+    const caps = re.findCaptures("abXYZ").?;
     try expectEqual(Match{ .start = 0, .end = 2 }, caps.name("a").?);
     try expectEqual(Match{ .start = 1, .end = 2 }, caps.name("b").?);
     try expectEqual(Match{ .start = 4, .end = 5 }, caps.name("c").?);
@@ -86,17 +95,15 @@ test "named captures can be absent in a match" {
     var re = try Regex.compile(gpa, "(?<letters>[A-Za-z]+)(?:(?<digits>\\d+)|(?<punct>[!?]+))", .{});
     defer re.deinit();
 
-    var buffer = [_]?Match{null} ** 4;
-
     {
-        const caps = (try re.findCaptures("abc123", &buffer)).?;
+        const caps = re.findCaptures("abc123").?;
         try expectEqualStrings("abc123", caps.get(0).?.bytes("abc123"));
         try expectEqualStrings("abc", caps.name("letters").?.bytes("abc123"));
         try expectEqualStrings("123", caps.name("digits").?.bytes("abc123"));
         try expectEqual(null, caps.name("punct"));
     }
     {
-        const caps = (try re.findCaptures("abc!!", &buffer)).?;
+        const caps = re.findCaptures("abc!!").?;
         try expectEqualStrings("abc", caps.name("letters").?.bytes("abc!!"));
         try expectEqualStrings("!!", caps.name("punct").?.bytes("abc!!"));
         try expectEqual(null, caps.name("digits"));
@@ -233,19 +240,17 @@ test "captures through flagged groups" {
         var re = try Regex.compile(gpa, "(?i:(ab))c", .{});
         defer re.deinit();
 
-        var buffer = [_]?Match{null} ** 2;
-        const caps = (try re.findCaptures("ABc", &buffer)).?;
-        try expectEqual(Match{ .start = 0, .end = 3 }, caps.items[0].?);
-        try expectEqual(Match{ .start = 0, .end = 2 }, caps.items[1].?);
+        const caps = re.findCaptures("ABc").?;
+        try expectEqual(Match{ .start = 0, .end = 3 }, caps.get(0).?);
+        try expectEqual(Match{ .start = 0, .end = 2 }, caps.get(1).?);
     }
     {
         var re = try Regex.compile(gpa, "(?i:(?:x(ab)))c", .{});
         defer re.deinit();
 
-        var buffer = [_]?Match{null} ** 2;
-        const caps = (try re.findCaptures("XABc", &buffer)).?;
-        try expectEqual(Match{ .start = 0, .end = 4 }, caps.items[0].?);
-        try expectEqual(Match{ .start = 1, .end = 3 }, caps.items[1].?);
+        const caps = re.findCaptures("XABc").?;
+        try expectEqual(Match{ .start = 0, .end = 4 }, caps.get(0).?);
+        try expectEqual(Match{ .start = 1, .end = 3 }, caps.get(1).?);
     }
 }
 

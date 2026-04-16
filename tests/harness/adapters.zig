@@ -65,9 +65,9 @@ fn assertBackendType(comptime T: type) void {
     assertFnShape(
         T,
         "findCaptures",
-        &.{ *T, Input, []?Regex.Match },
-        anyerror!?Regex.Captures,
-        "fn (*Backend, Input, []?Match) !?Captures",
+        &.{ *T, Input },
+        ?Regex.Captures,
+        "fn (*Backend, Input) ?Captures",
     );
 }
 

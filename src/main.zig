@@ -50,24 +50,14 @@ fn demoCaptures(gpa: std.mem.Allocator) !void {
     defer re.deinit();
 
     const capture_count = re.captureCount();
-    var stack_buf: [8]?Match = undefined;
 
-    std.debug.print("captures with caller-managed buffer\n", .{});
+    std.debug.print("captures from most recent search\n", .{});
     std.debug.print("  pattern:  {s}\n", .{pattern});
     std.debug.print("  haystack: {s}\n", .{haystack});
     std.debug.print("  captureCount(): {}\n", .{capture_count});
 
-    if (capture_count <= stack_buf.len) {
-        const captures = try re.findCaptures(haystack, stack_buf[0..capture_count]);
-        std.debug.print("  storage:  stack\n", .{});
-        printCaptures(captures, haystack);
-    } else {
-        const heap_buf = try gpa.alloc(?Match, capture_count);
-        defer gpa.free(heap_buf);
-        const captures = try re.findCaptures(haystack, heap_buf);
-        std.debug.print("  storage:  heap\n", .{});
-        printCaptures(captures, haystack);
-    }
+    const captures = re.findCaptures(haystack);
+    printCaptures(captures, haystack);
     std.debug.print("\n", .{});
 }
 
@@ -89,7 +79,8 @@ fn printCaptures(result: ?Captures, haystack: []const u8) void {
         return;
     };
 
-    for (captures.items, 0..) |group, i| {
+    for (0..captures.len()) |i| {
+        const group = captures.get(i);
         if (group) |m| {
             std.debug.print(
                 "  group {}: {s} [{}, {})\n",

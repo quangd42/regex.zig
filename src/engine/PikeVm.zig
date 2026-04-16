@@ -21,7 +21,7 @@ prog: Program,
 current_states: ThreadList,
 next_states: ThreadList,
 visited_epsilons: GenerationSet(u32),
-scratch_slots: []Offset,
+scratch_slots: []?Offset,
 stack: EpsilonStack,
 arena: std.heap.ArenaAllocator,
 
@@ -52,13 +52,13 @@ pub fn match(vm: *Vm, input: Input) bool {
 
 pub fn find(vm: *Vm, input: Input) ?Match {
     const slots = vm.search(.bounds, input) orelse return null;
-    return buildMatch(slots);
+    assert(slots.len == 2);
+    return .{ .start = slots[0].?, .end = slots[1].? };
 }
 
-pub fn findCaptures(vm: *Vm, input: Input, buffer: []?Match) !?Captures {
-    if (buffer.len < vm.prog.capture_info.count) return error.BufferTooSmall;
+pub fn findCaptures(vm: *Vm, input: Input) ?Captures {
     const slots = vm.search(.full, input) orelse return null;
-    return vm.buildCaptures(slots, buffer);
+    return .{ .slots = slots, .info = &vm.prog.capture_info };
 }
 
 /// Controls how much capture slot work is done during a search.
@@ -70,16 +70,19 @@ const Mode = enum { none, bounds, full };
 /// The main matching loop.
 /// Performs capture slot work according to the given `mode` and returns whether
 /// a left-most match was found.
-fn search(vm: *Vm, comptime mode: Mode, input: Input) ?[]const Offset {
+///
+/// In `.none` mode, any non-null result is only a success token and does not
+/// carry meaningful slot data.
+fn search(vm: *Vm, comptime mode: Mode, input: Input) ?[]const ?Offset {
     vm.current_states.clear();
     vm.next_states.clear();
 
     const start = vm.literalPrefixOffset(input) orelse return null;
     vm.seedStartState(mode, start, input);
 
-    var slots_for_match: ?[]const Offset = null;
+    var slots_for_match: ?[]const ?Offset = null;
     for (input.haystack[start..], start..) |c, i| {
-        const offset: u32 = @intCast(i);
+        const offset: Offset = @intCast(i);
         // vm.next_states are threads ready to consume input at offset
         if (vm.next_states.len() > 0) {
             if (vm.step(mode, c, offset, input)) |slots| {
@@ -99,7 +102,7 @@ fn search(vm: *Vm, comptime mode: Mode, input: Input) ?[]const Offset {
             // finished as soon as all thread dies, no reseed.
             break;
         }
-    } else if (vm.hasMatch()) |slots| slots_for_match = slots;
+    } else if (vm.hasMatch(mode)) |slots| slots_for_match = slots;
 
     return slots_for_match;
 }
@@ -126,7 +129,7 @@ fn epsilonClosure(
     start: StateId,
     at: Offset,
     input: Input,
-    slots: []Offset,
+    slots: []?Offset,
 ) void {
     vm.visited_epsilons.clear();
     vm.stack.push(.{ .explore = start });
@@ -147,7 +150,7 @@ fn explore(
     start: StateId,
     at: Offset,
     input: Input,
-    slots: []Offset,
+    slots: []?Offset,
 ) void {
     var id = start;
     while (true) {
@@ -201,11 +204,11 @@ fn explore(
 
 /// Advances all active threads by one byte.
 /// Returns the winning slot snapshot when a match state is reached.
-fn step(vm: *Vm, comptime mode: Mode, target: u8, at: Offset, input: Input) ?[]const Offset {
+fn step(vm: *Vm, comptime mode: Mode, target: u8, at: Offset, input: Input) ?[]const ?Offset {
     vm.current_states.clear();
     std.mem.swap(ThreadList, &vm.current_states, &vm.next_states);
     for (vm.current_states.slice()) |id| {
-        const slots = vm.current_states.slotsFor(id);
+        const slots = vm.current_states.slotsFor(mode, id);
         switch (vm.prog.states[id]) {
             .char => |s| if (target == s.byte) {
                 vm.epsilonClosure(mode, s.out, at + 1, input, slots);
@@ -244,48 +247,24 @@ fn step(vm: *Vm, comptime mode: Mode, target: u8, at: Offset, input: Input) ?[]c
 }
 
 fn seedStartState(vm: *Vm, comptime mode: Mode, at: Offset, input: Input) void {
-    vm.epsilonClosure(mode, 0, at, input, vm.scratch_slots);
+    const scratch_slots = switch (mode) {
+        .none => vm.scratch_slots[0..0],
+        .bounds => vm.scratch_slots[0..2],
+        .full => vm.scratch_slots,
+    };
+    vm.epsilonClosure(mode, 0, at, input, scratch_slots);
 }
 
 /// Returns the slot snapshot for a match state already present in next_states.
-fn hasMatch(vm: *Vm) ?[]const Offset {
+fn hasMatch(vm: *Vm, comptime mode: Mode) ?[]const ?Offset {
     for (vm.next_states.slice()) |id| {
         switch (vm.prog.states[id]) {
-            .match => return vm.next_states.slotsFor(id),
+            .match => return vm.next_states.slotsFor(mode, id),
             else => {},
         }
     }
     return null;
 }
-
-/// Builds a Match from the first pair of the given slots.
-/// Returns null if either is unset.
-fn buildMatch(slots: []const Offset) ?Match {
-    assert(slots.len >= 2);
-    const even = slots[0];
-    const odd = slots[1];
-    if (even == null_offset or odd == null_offset) {
-        return null;
-    }
-    return .{ .start = even, .end = odd };
-}
-
-/// Fills the buffer with given capture slots and wraps it as Captures.
-/// Asserts that the buffer is big enough to contain matched slots.
-fn buildCaptures(vm: *Vm, slots: []const Offset, buffer: []?Match) ?Captures {
-    const capture_count = vm.prog.capture_info.count;
-    assert(buffer.len >= capture_count);
-    assert(slots.len >= capture_count * 2);
-    assert(buildMatch(slots) != null);
-    for (0..capture_count) |i| {
-        buffer[i] = buildMatch(slots[i * 2 ..]);
-    }
-    return .{ .items = buffer[0..capture_count], .info = &vm.prog.capture_info };
-}
-
-/// Sentinel value for null offset. There is no check for null because in practice an input of anything
-/// close to this size might already cause other problems before it gets here.
-const null_offset = std.math.maxInt(Offset);
 
 const EpsilonStack = struct {
     value: []Frame,
@@ -293,7 +272,7 @@ const EpsilonStack = struct {
 
     const Frame = union(enum) {
         explore: StateId,
-        restore: struct { slot: u32, offset: Offset },
+        restore: struct { slot: u32, offset: ?Offset },
     };
 
     fn init(gpa: Allocator, state_count: u32) !EpsilonStack {
@@ -320,13 +299,13 @@ const EpsilonStack = struct {
 /// A set of active NFA threads with associated capture slot data.
 ///
 /// Internally, it wraps a SparseSet for O(1) membership checks. Each entry in
-/// `set.dense` is paired with a row of `slot_count` Offset values in the parallel
+/// `set.dense` is paired with a row of `slot_count` optional offsets in the parallel
 /// `slots` array.
 ///
 /// `slotsFor(id)` is used to retrieve data row for an entry.
 const ThreadList = struct {
     set: SparseSet,
-    slots: []Offset,
+    slots: []?Offset,
     slot_count: Count,
 
     const Count = u32;
@@ -339,23 +318,24 @@ const ThreadList = struct {
         };
     }
 
-    fn add(l: *ThreadList, comptime mode: Mode, id: StateId, slots: []const Offset) void {
+    fn add(l: *ThreadList, comptime mode: Mode, id: StateId, slots: []const ?Offset) void {
         if (!l.set.add(id)) return;
-        switch (mode) {
-            .none => {},
-            .bounds => @memcpy(l.slotsFor(id)[0..2], slots[0..2]),
-            .full => @memcpy(l.slotsFor(id), slots),
-        }
+        @memcpy(l.slotsFor(mode, id), slots);
     }
 
     /// This function must only be called when iterating over the result of `slice()`,
     /// i.e. `id` is assumed to be a member of the set.
     ///
-    /// Returns a mutable slice of Offset for caller to modify the capture slots of `id`.
-    fn slotsFor(l: *ThreadList, id: StateId) []Offset {
+    /// Returns a mutable slice of optional offsets for caller to modify the capture slots of `id`.
+    fn slotsFor(l: *ThreadList, comptime mode: Mode, id: StateId) []?Offset {
         assert(l.set.contains(id));
         const dense_id = l.set.sparse[id];
-        return l.slots[dense_id * l.slot_count ..][0..l.slot_count];
+        const slot_count = switch (mode) {
+            .none => 0,
+            .bounds => 2,
+            .full => l.slot_count,
+        };
+        return l.slots[dense_id * l.slot_count ..][0..slot_count];
     }
 
     fn len(l: *ThreadList) usize {
@@ -371,8 +351,8 @@ const ThreadList = struct {
     }
 };
 
-fn initSlots(gpa: Allocator, size: u32) ![]Offset {
-    const slots = try gpa.alloc(Offset, size);
-    @memset(slots, null_offset);
+fn initSlots(gpa: Allocator, size: u32) ![]?Offset {
+    const slots = try gpa.alloc(?Offset, size);
+    @memset(slots, null);
     return slots;
 }

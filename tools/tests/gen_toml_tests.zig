@@ -190,7 +190,9 @@ pub fn runAll() !void {
     total += try generateSources(arena.allocator(), "fowler", &fowler_sources);
     total += try generateSources(arena.allocator(), "rust-regex", &rust_regex_sources);
     total += try generateSources(arena.allocator(), "local", &local_sources);
+    std.debug.print("{s}\n", .{"=" ** 100});
     std.debug.print("TOML test generation complete ({d} total cases)\n", .{total});
+    std.debug.print("{s}\n", .{"=" ** 100});
 }
 
 pub fn runFowler() !void {
@@ -216,7 +218,8 @@ fn generateSources(alloc: Allocator, command: []const u8, sources: []const Sourc
     for (sources) |source| {
         total += try generateSource(alloc, source);
     }
-    std.debug.print("{s} generation complete ({d} total cases)\n", .{ command, total });
+    std.debug.print("==> {s} generation complete ({d} total cases)\n", .{ command, total });
+    std.debug.print("{s}\n", .{"-" ** 100});
     return total;
 }
 
@@ -248,7 +251,7 @@ fn generateSource(alloc: Allocator, source: SourceConfig) !usize {
         const count = try generateSuite(alloc, suite);
         total += count;
         std.debug.print(
-            "generated {s} from {s} ({d} cases)\n",
+            "generated {s} -> {s} ({d} cases)\n",
             .{ suite.output_path, suite.source_path, count },
         );
     }

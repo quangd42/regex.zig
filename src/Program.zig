@@ -43,7 +43,9 @@ pub const Index = u32;
 pub const Length = u16;
 
 /// Position of a character into input `haystack`.
-pub const Offset = u32;
+/// It is sized as `u31` so `?Offset` fits in 32 bits for capture slot storage. If this
+/// turns out to be to restrictive, we can use a sentinel offset value instead.
+pub const Offset = u31;
 
 /// ByteRange is inclusive on both ends.
 pub const ByteRange = struct {

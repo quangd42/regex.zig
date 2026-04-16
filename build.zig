@@ -4,6 +4,11 @@ pub fn build(b: *std.Build) void {
     // Shared build options.
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const install_demo = b.option(
+        bool,
+        "install-demo",
+        "Install regex-demo to zig-out/bin",
+    ) orelse false;
 
     // Public package module (what downstream users import as "regex").
     const regex_mod = b.addModule("regex", .{
@@ -24,7 +29,12 @@ pub fn build(b: *std.Build) void {
         .name = "regex-demo",
         .root_module = demo_mod,
     });
-    b.getInstallStep().dependOn(&demo_exe.step);
+    if (install_demo) {
+        const install_demo_exe = b.addInstallArtifact(demo_exe, .{});
+        b.getInstallStep().dependOn(&install_demo_exe.step);
+    } else {
+        b.getInstallStep().dependOn(&demo_exe.step);
+    }
 
     const regex_lib_check = b.addLibrary(.{
         .name = "regex",

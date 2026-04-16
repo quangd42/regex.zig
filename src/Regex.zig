@@ -49,17 +49,21 @@ pub fn find(re: *Regex, haystack: []const u8) ?Match {
     return re.engine.find(.init(haystack));
 }
 
-/// Search for a match and write capture groups into the supplied buffer.
-/// Return `Captures` wrapping the buffer on match, or `null` if no match is found.
-/// Return `error.BufferTooSmall` if `buffer.len` is smaller than `captureCount()`.
+/// Search for a match and return capture groups of the left-most match in the haystack.
+/// The first capture group (at index 0) is always the span of the whole match. Return
+/// `null` if no match is found.
 ///
 /// This answers the question: "does this regex match the haystack and if so, where? and
 /// where are the capture groups?"
 ///
 /// This is the most expensive query as the engine needs to keep track of multiple
 /// capture group boundary sets.
-pub fn findCaptures(re: *Regex, haystack: []const u8, buffer: []?Match) !?Captures {
-    return re.engine.findCaptures(.init(haystack), buffer);
+///
+/// The returned capture data becomes invalid after the next search on this same `Regex`,
+/// including advancing to the next match in the case of the future `findAllCaptures`.
+/// Use `Captures.copy(dest)` to persist the full capture list across later searches.
+pub fn findCaptures(re: *Regex, haystack: []const u8) ?Captures {
+    return re.engine.findCaptures(.init(haystack));
 }
 
 /// Returns the user-visible capture index for `name`, or `null` when the name does not exist.
@@ -75,7 +79,7 @@ pub fn captureNames(re: *Regex) NameIterator {
 }
 
 /// Returns the number of capture groups (including group 0 for the full match).
-/// Useful to determine the required minimum size of buffer for `findCaptures()`.
+/// Useful to determine the required minimum size of buffer for `Captures.copy(dest)`.
 pub fn captureCount(re: *Regex) usize {
     return re.prog.capture_info.count;
 }
@@ -91,7 +95,6 @@ test "usage: basic compile, match, find, findCaptures" {
     {
         var re = try Regex.compile(gpa, "color=(red|blue|)\\d", .{});
         defer re.deinit();
-        var buf: [2]?Match = undefined;
 
         try expect(re.match("color=red1"));
         try expect(re.match("color=blue2"));
@@ -102,22 +105,22 @@ test "usage: basic compile, match, find, findCaptures" {
         try expectEqual(Match{ .start = 2, .end = 12 }, re.find("x color=red1 y").?);
         try expectEqual(null, re.find("no colors here"));
 
-        const capt1 = (try re.findCaptures("id:color=blue2;", &buf)).?;
-        try expectEqual(2, capt1.items.len);
-        try expectEqual(Match{ .start = 3, .end = 14 }, capt1.items[0].?);
-        try expectEqual(Match{ .start = 9, .end = 13 }, capt1.items[1].?);
+        const capt1 = re.findCaptures("id:color=blue2;").?;
+        try expectEqual(2, capt1.len());
+        try expectEqual(Match{ .start = 3, .end = 14 }, capt1.get(0).?);
+        try expectEqual(Match{ .start = 9, .end = 13 }, capt1.get(1).?);
 
-        const capt2 = (try re.findCaptures("x color=red1 y", &buf)).?;
-        try expectEqual(2, capt2.items.len);
-        try expectEqual(Match{ .start = 2, .end = 12 }, capt2.items[0].?);
-        try expectEqual(Match{ .start = 8, .end = 11 }, capt2.items[1].?);
+        const capt2 = re.findCaptures("x color=red1 y").?;
+        try expectEqual(2, capt2.len());
+        try expectEqual(Match{ .start = 2, .end = 12 }, capt2.get(0).?);
+        try expectEqual(Match{ .start = 8, .end = 11 }, capt2.get(1).?);
 
-        const capt3 = (try re.findCaptures("x color=3 y", &buf)).?;
-        try expectEqual(2, capt3.items.len);
-        try expectEqual(Match{ .start = 2, .end = 9 }, capt3.items[0].?);
-        try expectEqual(Match{ .start = 8, .end = 8 }, capt3.items[1].?);
+        const capt3 = re.findCaptures("x color=3 y").?;
+        try expectEqual(2, capt3.len());
+        try expectEqual(Match{ .start = 2, .end = 9 }, capt3.get(0).?);
+        try expectEqual(Match{ .start = 8, .end = 8 }, capt3.get(1).?);
 
-        try expectEqual(null, try re.findCaptures("no colors here", &buf));
+        try expectEqual(null, re.findCaptures("no colors here"));
     }
     {
         var re = try Regex.compile(gpa, "[\\d\\D]", .{});
@@ -205,8 +208,7 @@ test "usage: named capture metadata and lookup" {
 
     // Named captures can be accessed directly from a match result.
     const haystack = "abXYZ";
-    var buffer = [_]?Match{null} ** 5;
-    const caps = (try re.findCaptures(haystack, &buffer)).?;
+    const caps = re.findCaptures(haystack).?;
     try expectEqualStrings("ab", caps.name("a").?.bytes(haystack));
     try expectEqualStrings("b", caps.name("b").?.bytes(haystack));
     try expectEqualStrings("Z", caps.name("c").?.bytes(haystack));
