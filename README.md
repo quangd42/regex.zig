@@ -80,18 +80,7 @@ locations.
 `findCaptures()` returns capture data from the most recent search on a `Regex`.
 That capture data becomes invalid after the next search on the same `Regex`.
 If you need it to survive later searches, copy it into your own storage with
-`Captures.copy(dest)`.
-
-```zig
-if (re.findCaptures(haystack)) |caps| {
-    std.debug.print("full match: {s}\n", .{caps.bytes(haystack)});
-    std.debug.print("group 1: {any}\n", .{caps.get(1)});
-
-    var stored: [8]?Regex.Match = undefined;
-    const persistent = caps.copy(&stored);
-    _ = persistent;
-}
-```
+`Captures.copy(dest)` - see [examples](#example).
 
 For unanchored searches, the engine also uses a small literal-prefix fast path
 when the pattern begins with a required literal byte.
@@ -108,8 +97,23 @@ pub fn main() !void {
     var re = try Regex.compile(gpa, "(\\d\\d)/(\\d\\d)/(\\d\\d\\d\\d)", .{});
     defer re.deinit();
 
-    if (re.find("date=03/18/2026")) |m| {
+    const haystack = "date=03/18/2026";
+
+    std.debug.print("match? {}\n", .{re.match(haystack)});
+
+    if (re.find(haystack)) |m| {
         std.debug.print("match at [{}, {})\n", .{ m.start, m.end });
+    }
+
+    if (re.findCaptures(haystack)) |caps| {
+        std.debug.print("month: {s}\n", .{caps.get(2).?.bytes(haystack)});
+        std.debug.print("year: {s}\n", .{caps.get(3).?.bytes(haystack)});
+
+        var buf: [8]?Regex.Match = undefined;
+        const stored = caps.copy(&buf);
+
+        _ = re.find("something else");
+        std.debug.print("copied full match: {s}\n", .{stored[0].?.bytes(haystack)});
     }
 }
 ```
