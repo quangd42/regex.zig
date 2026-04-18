@@ -66,6 +66,24 @@ test "captures" {
     try expectEqual(null, copied[2]);
 }
 
+test "find*In with search window" {
+    var re = try Regex.compile(gpa, "(ab)", .{});
+    defer re.deinit();
+
+    const yes = Regex.Input.init("zabx", .{ .start = 1, .end = 3, .anchored = true });
+    try expect(re.matchIn(yes));
+    try expectEqual(Match{ .start = 1, .end = 3 }, re.findIn(yes).?);
+
+    const caps = re.findCapturesIn(yes).?;
+    try expectEqual(Match{ .start = 1, .end = 3 }, caps.get(0).?);
+    try expectEqual(Match{ .start = 1, .end = 3 }, caps.get(1).?);
+
+    const no = Regex.Input.init("zabx", .{ .start = 0, .end = 2, .anchored = true });
+    try expect(!re.matchIn(no));
+    try expectEqual(null, re.findIn(no));
+    try expectEqual(null, re.findCapturesIn(no));
+}
+
 test "named capture metadata and lookup" {
     var re = try Regex.compile(gpa, "(?<a>.(?<b>.))(.)(?:.)(?<c>.)", .{});
     defer re.deinit();

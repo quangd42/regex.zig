@@ -7,17 +7,17 @@ const assert = std.debug.assert;
 const Program = @import("../Program.zig");
 const StateId = Program.StateId;
 const Offset = Program.Offset;
-const results = @import("../results.zig");
-const Match = results.Match;
-const Captures = results.Captures;
+const types = @import("../types.zig");
+const Match = types.Match;
+const Captures = types.Captures;
 const assertion = @import("assertion.zig");
 const GenerationSet = @import("generation_set.zig").GenerationSet;
-const Input = @import("Input.zig");
+const Input = @import("../types.zig").Input;
 const SparseSet = @import("SparseSet.zig");
 
 const Vm = @This();
 
-prog: Program,
+prog: *const Program,
 current_states: ThreadList,
 next_states: ThreadList,
 visited_epsilons: GenerationSet(u32),
@@ -25,7 +25,7 @@ scratch_slots: []?Offset,
 stack: EpsilonStack,
 arena: std.heap.ArenaAllocator,
 
-pub fn init(gpa: Allocator, prog: Program) !Vm {
+pub fn init(gpa: Allocator, prog: *const Program) !Vm {
     const state_count: u32 = @intCast(prog.states.len);
     const slot_count: u32 = @as(u32, prog.capture_info.count) * 2;
     var arena = std.heap.ArenaAllocator.init(gpa);
@@ -42,7 +42,6 @@ pub fn init(gpa: Allocator, prog: Program) !Vm {
 }
 
 pub fn deinit(vm: *Vm) void {
-    vm.prog.deinit();
     vm.arena.deinit();
 }
 
@@ -53,7 +52,10 @@ pub fn match(vm: *Vm, input: Input) bool {
 pub fn find(vm: *Vm, input: Input) ?Match {
     const slots = vm.search(.bounds, input) orelse return null;
     assert(slots.len == 2);
-    return .{ .start = slots[0].?, .end = slots[1].? };
+    const start = slots[0].?;
+    const end = slots[1].?;
+    assert(start >= input.start and end <= input.end);
+    return .{ .start = start, .end = end };
 }
 
 pub fn findCaptures(vm: *Vm, input: Input) ?Captures {
@@ -81,7 +83,7 @@ fn search(vm: *Vm, comptime mode: Mode, input: Input) ?[]const ?Offset {
     vm.seedStartState(mode, start, input);
 
     var slots_for_match: ?[]const ?Offset = null;
-    for (input.haystack[start..], start..) |c, i| {
+    for (input.haystack[start..input.end], start..) |c, i| {
         const offset: Offset = @intCast(i);
         // vm.next_states are threads ready to consume input at offset
         if (vm.next_states.len() > 0) {
@@ -111,14 +113,14 @@ fn search(vm: *Vm, comptime mode: Mode, input: Input) ?[]const ?Offset {
 /// Returns null if there is a literal prefix but it is not found in the haystack.
 /// Otherwise returns the offset of the literal value in the haystack.
 fn literalPrefixOffset(vm: *Vm, input: Input) ?Offset {
-    if (input.anchored) return 0;
+    if (input.anchored) return input.start;
     if (vm.prog.literalPrefix()) |byte| {
         // NOTE: indexOfScalar() already uses simd if possible under the hood,
         // but perhaps it can be tuned specifically for this use case.
-        const i = std.mem.indexOfScalar(u8, input.haystack, byte) orelse return null;
-        return @intCast(i);
+        const i = std.mem.indexOfScalar(u8, input.haystack[input.start..input.end], byte) orelse return null;
+        return input.start + @as(Offset, @intCast(i));
     }
-    return 0;
+    return input.start;
 }
 
 /// Explore epsilon transitions starting at `start`, updating capture slots and

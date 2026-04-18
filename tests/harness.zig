@@ -6,7 +6,7 @@ const Regex = export_test.Regex;
 const Compiler = export_test.Compiler;
 const PikeVm = export_test.PikeVm;
 const Program = export_test.Program;
-const Input = export_test.Input;
+const Input = Regex.Input;
 
 /// Inclusive-exclusive byte span written as `{ start, end }`.
 pub const Span = struct { usize, usize };
@@ -63,9 +63,19 @@ pub const Case = struct {
     name: []const u8,
     pattern: []const u8,
     haystack: []const u8,
+    start: usize = 0,
+    end: ?usize = null,
     anchored: bool = false,
-    options: Regex.Options = .{},
+    options: Regex.CompileOptions = .{},
     expected: Expected,
+
+    fn input(tc: Case) Input {
+        return Input.init(tc.haystack, .{
+            .start = tc.start,
+            .end = tc.end,
+            .anchored = tc.anchored,
+        });
+    }
 
     fn expectedFind(tc: Case) ?Regex.Match {
         return switch (tc.expected) {
@@ -148,6 +158,7 @@ pub const Suite = struct {
             try stderr.flush();
             return error.TestUnexpectedResult;
         };
+        defer prog.deinit();
 
         const Engine = backend.Engine();
         var engine = try Engine.init(gpa, prog);
@@ -159,10 +170,7 @@ pub const Suite = struct {
             try stderr.flush();
         }
 
-        const input: Input = .{
-            .haystack = tc.haystack,
-            .anchored = tc.anchored,
-        };
+        const input = tc.input();
         const matched = engine.match(input);
         const found = engine.find(input);
         const captures = switch (tc.expected) {
@@ -224,13 +232,15 @@ const Reporter = struct {
 
     fn traceHeader(r: Reporter) !void {
         try r.w.print(
-            "[trace] backend={s} name={s}/{s} pattern=\"{s}\" haystack=\"{s}\" anchored={s}\n",
+            "[trace] backend={s} name={s}/{s} pattern=\"{s}\" haystack=\"{s}\" window={d}..{?} anchored={s}\n",
             .{
                 @tagName(r.backend),
                 r.suite_name,
                 r.tc.name,
                 r.tc.pattern,
                 r.tc.haystack,
+                r.tc.start,
+                r.tc.end,
                 if (r.tc.anchored) "true" else "false",
             },
         );
@@ -307,6 +317,7 @@ const Reporter = struct {
         try r.w.print("[{s}/{s} backend={s}]\n", .{ r.suite_name, r.tc.name, @tagName(r.backend) });
         try r.w.print("  pattern: {s}\n", .{r.tc.pattern});
         try r.w.print("  haystack: {s}\n", .{r.tc.haystack});
+        try r.w.print("  window: {d}..{?}\n", .{ r.tc.start, r.tc.end });
         try r.w.print("  anchored: {s}\n", .{if (r.tc.anchored) "true" else "false"});
     }
 };
@@ -332,14 +343,14 @@ pub const Backend = enum {
 
 fn assertBackendType(comptime T: type) void {
     if (!@hasField(T, "prog")) @compileError("backend type must expose `prog` for trace dumps");
-    if (@FieldType(T, "prog") != Program) @compileError("backend `prog` field must be Program");
+    if (@FieldType(T, "prog") != *const Program) @compileError("backend `prog` field must be *const Program");
 
     assertFnShape(
         T,
         "init",
-        &.{ Allocator, Program },
+        &.{ Allocator, *const Program },
         anyerror!T,
-        "fn (Allocator, Program) !Backend",
+        "fn (Allocator, *const Program) !Backend",
     );
     assertFnShape(
         T,

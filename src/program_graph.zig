@@ -164,14 +164,14 @@ pub fn dumpGraphAlloc(gpa: Allocator, vertices: []const Vertex) ![]const u8 {
 }
 
 /// Returns a canonical text representation of the NFA graph.
-pub fn dumpProgramGraphAlloc(prog: Program, gpa: Allocator) ![]const u8 {
+pub fn dumpProgramGraphAlloc(prog: *const Program, gpa: Allocator) ![]const u8 {
     const graph = try graphView(prog, gpa);
     defer graph.deinit(gpa);
     return dumpGraphAlloc(gpa, graph.vertices);
 }
 
 /// Returns canonical graph vertices by performing a DFS from state 0.
-pub fn graphView(prog: Program, gpa: Allocator) !GraphView {
+pub fn graphView(prog: *const Program, gpa: Allocator) !GraphView {
     const len = prog.states.len;
     if (len == 0) return .{ .vertices = try gpa.alloc(Vertex, 0) };
 

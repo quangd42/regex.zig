@@ -10,18 +10,20 @@ pub const Span = errors.Span;
 /// Iterator over capture names in capture index order.
 /// The first yielded item always corresponds to group 0, the full match, and is therefore `null`.
 pub const NameIterator = @import("CaptureInfo.zig").NameIterator;
-pub const Options = @import("Options.zig");
 const Program = @import("Program.zig");
-const results = @import("results.zig");
-pub const Match = results.Match;
-pub const Captures = results.Captures;
+const types = @import("types.zig");
+pub const Input = types.Input;
+pub const CompileOptions = types.CompileOptions;
+pub const Match = types.Match;
+pub const Captures = types.Captures;
 
 const Regex = @This();
-prog: Program,
 engine: PikeVm,
+prog: *Program,
 
-pub fn compile(gpa: Allocator, pattern: []const u8, options: Options) !Regex {
+pub fn compile(gpa: Allocator, pattern: []const u8, options: CompileOptions) !Regex {
     const prog = try Compiler.compile(gpa, pattern, options);
+    errdefer prog.deinit();
 
     // TODO: choose engine based on pattern
     return .{ .prog = prog, .engine = try .init(gpa, prog) };
@@ -29,6 +31,7 @@ pub fn compile(gpa: Allocator, pattern: []const u8, options: Options) !Regex {
 
 pub fn deinit(re: *Regex) void {
     re.engine.deinit();
+    re.prog.deinit();
 }
 
 /// Perform unanchored matching on the given haystack.
@@ -36,7 +39,12 @@ pub fn deinit(re: *Regex) void {
 /// This answers the question "does this regex match the haystack anywhere?"
 /// This is the cheapest query.
 pub fn match(re: *Regex, haystack: []const u8) bool {
-    return re.engine.match(.init(haystack));
+    return re.matchIn(.init(haystack, .{}));
+}
+
+/// Perform matching using the given search input configuration.
+pub fn matchIn(re: *Regex, input: Input) bool {
+    return re.engine.match(input);
 }
 
 /// Return the start and end indices of the left-most match in the haystack.
@@ -46,7 +54,13 @@ pub fn match(re: *Regex, haystack: []const u8) bool {
 /// It performs extra work to keep track of the boundary of the matched string in the
 /// haystack, and is more expensive than `Regex.match()`.
 pub fn find(re: *Regex, haystack: []const u8) ?Match {
-    return re.engine.find(.init(haystack));
+    return re.findIn(.init(haystack, .{}));
+}
+
+/// Return the start and end indices of the left-most match for the given search input
+/// configuration.
+pub fn findIn(re: *Regex, input: Input) ?Match {
+    return re.engine.find(input);
 }
 
 /// Search for a match and return capture groups of the left-most match in the haystack.
@@ -63,7 +77,12 @@ pub fn find(re: *Regex, haystack: []const u8) ?Match {
 /// including advancing to the next match in the case of the future `findAllCaptures`.
 /// Use `Captures.copy(dest)` to persist the full capture list across later searches.
 pub fn findCaptures(re: *Regex, haystack: []const u8) ?Captures {
-    return re.engine.findCaptures(.init(haystack));
+    return re.findCapturesIn(.init(haystack, .{}));
+}
+
+/// Search for capture groups using the given search input configuration.
+pub fn findCapturesIn(re: *Regex, input: Input) ?Captures {
+    return re.engine.findCaptures(input);
 }
 
 /// Returns the user-visible capture index for `name`, or `null` when the name does not exist.

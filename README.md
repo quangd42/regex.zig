@@ -82,6 +82,14 @@ That capture data becomes invalid after the next search on the same `Regex`.
 If you need it to survive later searches, copy it into your own storage with
 `Captures.copy(dest)` - see [examples](#example).
 
+If you need to configure bounds or anchoring, use the corresponding `*In` API with
+`Regex.Input`:
+
+```zig
+const anchored = Regex.Input.init(haystack, .{ .start = 3, .anchored = true });
+const anchored_found = re.findIn(anchored);
+```
+
 For unanchored searches, the engine also uses a small literal-prefix fast path
 when the pattern begins with a required literal byte.
 
@@ -103,6 +111,10 @@ pub fn main() !void {
 
     if (re.find(haystack)) |m| {
         std.debug.print("match at [{}, {})\n", .{ m.start, m.end });
+    }
+
+    if (re.findIn(.init(haystack, .{ .start = 5, .end = 15 }))) |m| {
+        std.debug.print("bounded match at [{}, {})\n", .{ m.start, m.end });
     }
 
     if (re.findCaptures(haystack)) |caps| {

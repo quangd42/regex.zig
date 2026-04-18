@@ -6,6 +6,7 @@ const suites = [_]harness.Suite{
     @import("cases/empty.zig").suite,
     @import("cases/flags.zig").suite,
     @import("cases/multiline.zig").suite,
+    @import("cases/search_window.zig").suite,
     @import("fowler/basic.zig").suite,
     @import("fowler/repetition.zig").suite,
     @import("fowler/nullsubexpr.zig").suite,

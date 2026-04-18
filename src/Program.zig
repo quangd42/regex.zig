@@ -22,7 +22,7 @@ pub fn deinit(p: *Program) void {
     p.arena.deinit();
 }
 
-pub fn literalPrefix(p: *Program) ?u8 {
+pub fn literalPrefix(p: *const Program) ?u8 {
     if (p.states.len < 2) return null;
     var id: usize = 0;
     while (true) {
@@ -43,8 +43,9 @@ pub const Index = u32;
 pub const Length = u16;
 
 /// Position of a character into input `haystack`.
-/// It is sized as `u31` so `?Offset` fits in 32 bits for capture slot storage. If this
-/// turns out to be to restrictive, we can use a sentinel offset value instead.
+/// It is sized as `u31` so `?Offset` fits in 32 bits for capture slot storage.
+/// Implementation note: If this turns out to be too restrictive, a sentinel offset value
+/// can be used instead.
 pub const Offset = u31;
 
 /// ByteRange is inclusive on both ends.

@@ -43,7 +43,7 @@ const Options = struct {
 
 /// Resources allocated are owned by Program after compilation is done, and caller is expected
 /// to call Program.deinit() to free them.
-pub fn compile(gpa: Allocator, pattern: []const u8, options: TopLevelOptions) !Program {
+pub fn compile(gpa: Allocator, pattern: []const u8, options: TopLevelOptions) !*Program {
     var parser: Parser = .init(gpa, pattern, .{
         .max_repeat = options.limits.max_repeat,
         .diag = options.diag,
@@ -58,7 +58,7 @@ pub fn compile(gpa: Allocator, pattern: []const u8, options: TopLevelOptions) !P
     return compiler.compileAst(&ast);
 }
 
-fn compileAst(c: *Compiler, ast: *Ast) Error!Program {
+fn compileAst(c: *Compiler, ast: *Ast) Error!*Program {
     const a = c.arena.allocator();
 
     // PatchList uses state id 0 as the dangling sentinel, so the start capture for
@@ -76,7 +76,8 @@ fn compileAst(c: *Compiler, ast: *Ast) Error!Program {
         assert(c.matcher_count == countMatcherStates(c.states.items));
     }
 
-    return .{
+    const prog = try a.create(Program);
+    prog.* = .{
         .states = try c.states.toOwnedSlice(a),
         .ranges = try c.ranges.toOwnedSlice(a),
         .branches = try c.branches.toOwnedSlice(a),
@@ -86,6 +87,7 @@ fn compileAst(c: *Compiler, ast: *Ast) Error!Program {
         .matcher_count = c.matcher_count,
         .arena = c.arena,
     };
+    return prog;
 }
 
 fn compileNode(c: *Compiler, ast: *const Ast, node_index: Ast.Node.Index) Error!Frag {
@@ -876,7 +878,7 @@ fn expectProgram(pattern: []const u8, expected: []const Vertex) !void {
 
 fn expectProgramWithOptions(pattern: []const u8, expected: []const Vertex, opts: TopLevelOptions) !void {
     const a = testing.allocator;
-    var prog = try Compiler.compile(a, pattern, opts);
+    const prog = try Compiler.compile(a, pattern, opts);
     defer prog.deinit();
     const graph = try g.graphView(prog, a);
     defer graph.deinit(a);
@@ -1183,7 +1185,7 @@ test "literal prefix" {
     };
 
     for (test_cases) |tc| {
-        var prog = try Compiler.compile(testing.allocator, tc.pattern, .{});
+        const prog = try Compiler.compile(testing.allocator, tc.pattern, .{});
         defer prog.deinit();
         try testing.expectEqual(tc.expected, prog.literalPrefix());
     }
@@ -1198,7 +1200,7 @@ const builtin = @import("builtin");
 const Ast = @import("Ast.zig");
 const errors = @import("errors.zig");
 const Diagnostics = errors.Diagnostics;
-const TopLevelOptions = @import("Options.zig");
+const TopLevelOptions = @import("types.zig").CompileOptions;
 const SyntaxOptions = TopLevelOptions.Syntax;
 const Parser = @import("Parser.zig");
 const Program = @import("Program.zig");
