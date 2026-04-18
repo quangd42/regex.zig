@@ -113,14 +113,13 @@ fn search(vm: *Vm, comptime mode: Mode, input: Input) ?[]const ?Offset {
 /// Returns null if there is a literal prefix but it is not found in the haystack.
 /// Otherwise returns the offset of the literal value in the haystack.
 fn literalPrefixOffset(vm: *Vm, input: Input) ?Offset {
-    if (input.anchored) return input.start;
-    if (vm.prog.literalPrefix()) |byte| {
-        // NOTE: indexOfScalar() already uses simd if possible under the hood,
-        // but perhaps it can be tuned specifically for this use case.
-        const i = std.mem.indexOfScalar(u8, input.haystack[input.start..input.end], byte) orelse return null;
-        return input.start + @as(Offset, @intCast(i));
-    }
-    return input.start;
+    if (input.anchored) return @intCast(input.start);
+    const i: usize = if (vm.prog.literalPrefix()) |byte|
+        // NOTE: indexOfScalar() already uses simd?
+        std.mem.indexOfScalar(u8, input.haystack[input.start..input.end], byte) orelse return null
+    else
+        0;
+    return @intCast(input.start + i);
 }
 
 /// Explore epsilon transitions starting at `start`, updating capture slots and

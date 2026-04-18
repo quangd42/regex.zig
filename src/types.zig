@@ -71,9 +71,9 @@ pub const Input = struct {
     /// The full haystack being searched.
     haystack: []const u8,
     /// Inclusive start index of the search window.
-    start: Offset,
+    start: usize,
     /// Exclusive end index of the search window.
-    end: Offset,
+    end: usize,
     /// Require any match to begin at `start`.
     anchored: bool,
 
@@ -84,8 +84,8 @@ pub const Input = struct {
         assert(end <= std.math.maxInt(Offset));
         return .{
             .haystack = haystack,
-            .start = @intCast(opts.start),
-            .end = @intCast(end),
+            .start = opts.start,
+            .end = end,
             .anchored = opts.anchored,
         };
     }
@@ -151,7 +151,7 @@ pub const Match = struct {
 /// The first capture group is always the span of the whole match in haystack.
 ///
 /// The returned capture data becomes invalid after the next search on this same `Regex`,
-/// including advancing to the next match in the case of the future `findAllCaptures`.
+/// including advancing to the next match when using `findAllCaptures`.
 /// To preserve capture data across later searches, use `copy(dest)`.
 /// `Captures` must not outlive the `Regex` instance where it came from.
 pub const Captures = struct {

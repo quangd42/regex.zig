@@ -16,8 +16,8 @@ API ergonomics, and performance features are still evolving quickly.
 
 ## Why
 
-Zig does not yet have an established native regex engine. This is also a way to test
-Zig's design and philosophy on a more serious project.
+Zig does not yet have an established native regex engine. This is also a way for me to learn
+and test Zig's design and philosophy on a more serious project.
 
 ## What Works Today
 
@@ -80,7 +80,11 @@ locations.
 `findCaptures()` returns capture data from the most recent search on a `Regex`.
 That capture data becomes invalid after the next search on the same `Regex`.
 If you need it to survive later searches, copy it into your own storage with
-`Captures.copy(dest)` - see [examples](#example).
+`Captures.copy(dest)` - see [examples](#examples).
+
+Use `findAll()` to iterate over the successive _non-overlapping_ match spans you would get
+from repeated `find()`. `findAllCaptures()` works similarly, but each match contains full
+capture data, which becomes invalid after each iteration.
 
 If you need to configure bounds or anchoring, use the corresponding `*In` API with
 `Regex.Input`:
@@ -93,7 +97,9 @@ const anchored_found = re.findIn(anchored);
 For unanchored searches, the engine also uses a small literal-prefix fast path
 when the pattern begins with a required literal byte.
 
-## Example
+## Examples
+
+For a runnable demo, see [src/main.zig](src/main.zig).
 
 ```zig
 const std = @import("std");
@@ -107,16 +113,20 @@ pub fn main() !void {
 
     const haystack = "date=03/18/2026";
 
+    // Is there a match?
     std.debug.print("match? {}\n", .{re.match(haystack)});
 
+    // Where is the match?
     if (re.find(haystack)) |m| {
         std.debug.print("match at [{}, {})\n", .{ m.start, m.end });
     }
 
+    // Where is the match in the given search window?
     if (re.findIn(.init(haystack, .{ .start = 5, .end = 15 }))) |m| {
         std.debug.print("bounded match at [{}, {})\n", .{ m.start, m.end });
     }
 
+    // Where is the match and where are its capture groups?
     if (re.findCaptures(haystack)) |caps| {
         std.debug.print("month: {s}\n", .{caps.get(2).?.bytes(haystack)});
         std.debug.print("year: {s}\n", .{caps.get(3).?.bytes(haystack)});
@@ -126,6 +136,45 @@ pub fn main() !void {
 
         _ = re.find("something else");
         std.debug.print("copied full match: {s}\n", .{stored[0].?.bytes(haystack)});
+    }
+}
+```
+
+```zig
+const std = @import("std");
+const Regex = @import("regex");
+
+pub fn main() !void {
+    const gpa = std.heap.page_allocator;
+    // Iterate over all non-overlapping matches with `findAll()`:
+    {
+        const haystack = "Hello World, Alice and Bob";
+
+        var re = try Regex.compile(gpa, "[A-Z][a-z]+", .{});
+        defer re.deinit();
+
+        var iter = re.findAll(haystack);
+        while (iter.next()) |m| {
+            std.debug.print("{s} [{}, {})\n", .{ m.bytes(haystack), m.start, m.end });
+        }
+    }
+    // Iterate over all matches with capture groups using `findAllCaptures()`:
+    // Each `Captures` yielded by `findAllCaptures()` is invalidated by the next
+    // `next()` call on that iterator. Use `Captures.copy(dest)` if you need to keep
+    // capture data after advancing.
+    {
+        const haystack = "x=12 y=34";
+
+        var re = try Regex.compile(gpa, "(?<key>\\w+)=(?<value>\\d+)", .{});
+        defer re.deinit();
+
+        var iter = re.findAllCaptures(haystack);
+        while (iter.next()) |caps| {
+            std.debug.print("{s} -> {s}\n", .{
+                caps.name("key").?.bytes(haystack),
+                caps.name("value").?.bytes(haystack),
+            });
+        }
     }
 }
 ```
@@ -148,8 +197,6 @@ pub fn main() !void {
     std.debug.assert(re.match("ABC"));
 }
 ```
-
-For more examples, see [src/main.zig](src/main.zig).
 
 ## Documentation
 

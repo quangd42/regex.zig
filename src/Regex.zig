@@ -7,15 +7,13 @@ const PikeVm = engines.PikeVm;
 const errors = @import("errors.zig");
 pub const Diagnostics = errors.Diagnostics;
 pub const Span = errors.Span;
-/// Iterator over capture names in capture index order.
-/// The first yielded item always corresponds to group 0, the full match, and is therefore `null`.
-pub const NameIterator = @import("CaptureInfo.zig").NameIterator;
 const Program = @import("Program.zig");
 const types = @import("types.zig");
 pub const Input = types.Input;
 pub const CompileOptions = types.CompileOptions;
 pub const Match = types.Match;
 pub const Captures = types.Captures;
+const iterator = @import("iterator.zig");
 
 const Regex = @This();
 engine: PikeVm,
@@ -74,7 +72,7 @@ pub fn findIn(re: *Regex, input: Input) ?Match {
 /// capture group boundary sets.
 ///
 /// The returned capture data becomes invalid after the next search on this same `Regex`,
-/// including advancing to the next match in the case of the future `findAllCaptures`.
+/// including advancing to the next match when using `findAllCaptures`.
 /// Use `Captures.copy(dest)` to persist the full capture list across later searches.
 pub fn findCaptures(re: *Regex, haystack: []const u8) ?Captures {
     return re.findCapturesIn(.init(haystack, .{}));
@@ -85,11 +83,51 @@ pub fn findCapturesIn(re: *Regex, input: Input) ?Captures {
     return re.engine.findCaptures(input);
 }
 
+/// Iterator over successive non-overlapping matches.
+/// See `findAll` and `findAllIn`.
+pub const MatchIterator = iterator.MatchIterator;
+
+/// Iterator over successive non-overlapping matches with capture group data.
+/// Each yielded `Captures` is invalidated by the next `next()` call. Use
+/// `Captures.copy(dest)` to persist data across iterations.
+/// See `findAllCaptures` and `findAllCapturesIn`.
+pub const CapturesIterator = iterator.CapturesIterator;
+
+/// Return an iterator over all successive non-overlapping matches in the haystack.
+pub fn findAll(re: *Regex, haystack: []const u8) MatchIterator {
+    return re.findAllIn(.init(haystack, .{}));
+}
+
+/// Return an iterator over all successive non-overlapping matches
+/// within the given input window.
+pub fn findAllIn(re: *Regex, input: Input) MatchIterator {
+    return .{ .regex = re, .input = input };
+}
+
+/// Return an iterator over all successive non-overlapping matches
+/// with full capture group data.
+///
+/// Each yielded `Captures` borrows engine-internal memory and is invalidated
+/// by the next `next()` call. Use `Captures.copy(dest)` to persist capture
+/// data across iterations.
+pub fn findAllCaptures(re: *Regex, haystack: []const u8) CapturesIterator {
+    return re.findAllCapturesIn(.init(haystack, .{}));
+}
+
+/// Like `findAllCaptures`, but with a custom input window.
+pub fn findAllCapturesIn(re: *Regex, input: Input) CapturesIterator {
+    return .{ .regex = re, .input = input };
+}
+
 /// Returns the user-visible capture index for `name`, or `null` when the name does not exist.
 pub fn captureIndex(re: *Regex, name: []const u8) ?usize {
     const index = re.prog.capture_info.indexOf(name) orelse return null;
     return index;
 }
+
+/// Iterates over capture names in capture index order.
+/// Unnamed captures, including group 0 for the full match, are yielded as `null`.
+pub const NameIterator = @import("CaptureInfo.zig").NameIterator;
 
 /// Returns an iterator over capture names in capture index order.
 /// Unnamed captures, including group 0 for the full match, are yielded as `null`.
@@ -232,4 +270,59 @@ test "usage: named capture metadata and lookup" {
     try expectEqualStrings("b", caps.name("b").?.bytes(haystack));
     try expectEqualStrings("Z", caps.name("c").?.bytes(haystack));
     try expectEqual(null, caps.name("missing"));
+}
+
+test "usage: findAll iterates over all matches" {
+    const gpa = testing.allocator;
+
+    // findAll returns an iterator over successive non-overlapping matches.
+    {
+        var re = try Regex.compile(gpa, "[A-Z][a-z]+", .{});
+        defer re.deinit();
+
+        const haystack = "Hello World, Alice and Bob";
+        var iter = re.findAll(haystack);
+
+        const m1 = iter.next().?;
+        try expectEqualStrings("Hello", m1.bytes(haystack));
+
+        const m2 = iter.next().?;
+        try expectEqualStrings("World", m2.bytes(haystack));
+
+        const m3 = iter.next().?;
+        try expectEqualStrings("Alice", m3.bytes(haystack));
+
+        const m4 = iter.next().?;
+        try expectEqualStrings("Bob", m4.bytes(haystack));
+
+        try expectEqual(null, iter.next());
+    }
+
+    // findAllCaptures yields Captures for each match.
+    // Each Captures is invalidated by the next next() call.
+    {
+        var re = try Regex.compile(gpa, "(\\d+)-(\\d+)", .{});
+        defer re.deinit();
+
+        const haystack = "12-34 and 56-78";
+        var iter = re.findAllCaptures(haystack);
+
+        const c1 = iter.next().?;
+        try expectEqualStrings("12-34", c1.bytes(haystack));
+        try expectEqualStrings("12", c1.get(1).?.bytes(haystack));
+        try expectEqualStrings("34", c1.get(2).?.bytes(haystack));
+
+        // Persist captures before the next next() call.
+        var buf: [3]?Match = undefined;
+        const saved = c1.copy(&buf);
+
+        const c2 = iter.next().?;
+        try expectEqualStrings("56-78", c2.bytes(haystack));
+
+        // Previously saved captures are still valid.
+        try expectEqualStrings("12-34", saved[0].?.bytes(haystack));
+        try expectEqualStrings("12", saved[1].?.bytes(haystack));
+
+        try expectEqual(null, iter.next());
+    }
 }

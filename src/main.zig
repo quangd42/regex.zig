@@ -11,6 +11,7 @@ pub fn main() !void {
     try demoMatchAndFind(gpa);
     try demoCharacterClasses(gpa);
     try demoCaptures(gpa);
+    try demoFindAll(gpa);
 }
 
 fn demoMatchAndFind(gpa: std.mem.Allocator) !void {
@@ -39,6 +40,29 @@ fn demoCharacterClasses(gpa: std.mem.Allocator) !void {
     std.debug.print("  pattern:  {s}\n", .{pattern});
     std.debug.print("  haystack: {s}\n", .{haystack});
     printFind(re.find(haystack), haystack);
+    std.debug.print("\n", .{});
+}
+
+fn demoFindAll(gpa: std.mem.Allocator) !void {
+    const pattern = "[A-Z][a-z]+";
+    const haystack = "Hello World, Alice and Bob";
+
+    var re = try Regex.compile(gpa, pattern, .{});
+    defer re.deinit();
+
+    std.debug.print("findAll iterator\n", .{});
+    std.debug.print("  pattern:  {s}\n", .{pattern});
+    std.debug.print("  haystack: {s}\n", .{haystack});
+
+    var iter = re.findAll(haystack);
+    var i: usize = 0;
+    while (iter.next()) |m| {
+        std.debug.print(
+            "  match {}: {s} [{}, {})\n",
+            .{ i, m.bytes(haystack), m.start, m.end },
+        );
+        i += 1;
+    }
     std.debug.print("\n", .{});
 }
 
