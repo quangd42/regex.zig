@@ -61,10 +61,6 @@
         //    // actually used.
         //    .lazy = false,
         //},
-        .toml = .{
-            .url = "git+https://github.com/sam701/zig-toml#cf50bd59c6276fb2b6d34b8d71d35486eecc719c",
-            .hash = "toml-0.3.0-bV14Bd-EAQBKoXhpYft303BtA2vgLNlxntUCIWgRUl46",
-        },
     },
     // Specifies the set of files and directories that are included in this package.
     // Only files and directories listed here are included in the `hash` that

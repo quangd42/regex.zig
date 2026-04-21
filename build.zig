@@ -47,29 +47,6 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run regex demo");
     run_step.dependOn(&run_demo.step);
 
-    // Corpus generation tooling.
-    const toml_dep = b.dependency("toml", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    const gen_tests_mod = b.createModule(.{
-        .root_source_file = b.path("tools/tests/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    gen_tests_mod.addImport("toml", toml_dep.module("toml"));
-    const gen_tests_exe = b.addExecutable(.{
-        .name = "gen-tests",
-        .root_module = gen_tests_mod,
-    });
-    const run_gen_tests = b.addRunArtifact(gen_tests_exe);
-    if (b.args) |args| run_gen_tests.addArgs(args);
-    const gen_tests_step = b.step(
-        "gen-tests",
-        "Generate Zig corpus files from Rust TOML test suites",
-    );
-    gen_tests_step.dependOn(&run_gen_tests.step);
-
     // Build-on-save check step.
     const check = b.step("check", "Compile demo and library module");
     check.dependOn(&regex_lib_check.step);
@@ -99,18 +76,14 @@ pub fn build(b: *std.Build) void {
     api_tests.root_module.addImport("export_test", export_test_mod);
     const run_api_tests = b.addRunArtifact(api_tests);
 
-    // Suite tests rooted at `tests/suite.zig`.
-    const suite_tests = b.addTest(.{
+    // Suite tests
+    const suite_tests = b.addExecutable(.{
         .name = "suite-tests",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/suite.zig"),
+            .root_source_file = b.path("tests/runner.zig"),
             .target = target,
             .optimize = optimize,
         }),
-        .test_runner = .{
-            .path = b.path("tests/test_runner.zig"),
-            .mode = .simple,
-        },
     });
     suite_tests.root_module.addImport("export_test", export_test_mod);
     const run_suite_tests = b.addRunArtifact(suite_tests);

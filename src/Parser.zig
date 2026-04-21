@@ -69,9 +69,7 @@ pub fn parse(p: *Parser) Error!Ast {
             '.' => try concat.append(a, try p.addNode(.dot)),
             '^' => try concat.append(a, try p.addNode(.{ .assertion = .start_line_or_text })),
             '$' => try concat.append(a, try p.addNode(.{ .assertion = .end_line_or_text })),
-            else => try concat.append(a, try p.addNode(
-                .{ .literal = .{ .verbatim = c } },
-            )),
+            else => try concat.append(a, try p.addNode(.{ .literal = .{ .verbatim = c } })),
         }
     } else try p.popGroupAtEnd(concat);
 
@@ -905,6 +903,12 @@ test "parse errors" {
             .tag = .group_not_closed,
             .start = 0,
             .end = 1,
+        },
+        .{
+            .pattern = "a(b|c",
+            .tag = .group_not_closed,
+            .start = 1,
+            .end = 2,
         },
         .{
             .pattern = "(?:",

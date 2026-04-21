@@ -3,9 +3,6 @@
 This follows the layout of RE2's syntax reference, but describes the current
 `regex.zig` Pike VM surface.
 
-The authoritative backend capability matrix lives in
-`tests/harness/capabilities.zig`.
-
 Support is ASCII-only today.
 
 ```text

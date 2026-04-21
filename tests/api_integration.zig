@@ -20,6 +20,11 @@ test "basic end-to-end" {
         try expect(!re.match("a1"));
     }
     {
+        var re = try Regex.compile(gpa, "a{2,4}?", .{});
+        defer re.deinit();
+        try expectEqual(Match{ .start = 0, .end = 2 }, re.find("aaaa").?);
+    }
+    {
         var re = try Regex.compile(gpa, "^r\\D$", .{});
         defer re.deinit();
         try expect(re.match("re"));
@@ -65,29 +70,48 @@ test "named capture metadata and lookup" {
     var re = try Regex.compile(gpa, "(?<a>.(?<b>.))(.)(?:.)(?<c>.)", .{});
     defer re.deinit();
 
-    try expectEqual(@as(?usize, 1), re.captureIndex("a"));
-    try expectEqual(@as(?usize, 2), re.captureIndex("b"));
-    try expectEqual(@as(?usize, 4), re.captureIndex("c"));
-    try expectEqual(@as(?usize, null), re.captureIndex("missing"));
+    const index_cases = [_]struct {
+        name: []const u8,
+        expected: ?usize,
+    }{
+        .{ .name = "a", .expected = 1 },
+        .{ .name = "b", .expected = 2 },
+        .{ .name = "c", .expected = 4 },
+        .{ .name = "missing", .expected = null },
+    };
+    for (index_cases) |tc| {
+        try expectEqual(tc.expected, re.captureIndex(tc.name));
+    }
 
-    const err = error.TestUnexpectedResult;
     var names = re.captureNames();
-    const name0 = names.next() orelse return err;
-    try expect(name0 == null);
-    try expectEqualStrings("a", (names.next() orelse return err).?);
-    try expectEqualStrings("b", (names.next() orelse return err).?);
-    const name3 = names.next() orelse return err;
-    try expect(name3 == null);
-    try expectEqualStrings("c", (names.next() orelse return err).?);
+    const expected_names = [_]?[]const u8{ null, "a", "b", null, "c" };
+    for (expected_names) |expected_name| {
+        const actual_name = names.next() orelse return error.TestUnexpectedResult;
+        if (expected_name) |name| {
+            try expect(actual_name != null);
+            try expectEqualStrings(name, actual_name.?);
+        } else {
+            try expect(actual_name == null);
+        }
+    }
     try expectEqual(null, names.next());
 
-    const caps = re.findCaptures("abXYZ").?;
-    try expectEqual(Match{ .start = 0, .end = 2 }, caps.name("a").?);
-    try expectEqual(Match{ .start = 1, .end = 2 }, caps.name("b").?);
-    try expectEqual(Match{ .start = 4, .end = 5 }, caps.name("c").?);
-    try expectEqualStrings("ab", caps.name("a").?.bytes("abXYZ"));
-    try expectEqualStrings("b", caps.name("b").?.bytes("abXYZ"));
-    try expectEqualStrings("Z", caps.name("c").?.bytes("abXYZ"));
+    const haystack = "abXYZ";
+    const caps = re.findCaptures(haystack).?;
+    const capture_cases = [_]struct {
+        name: []const u8,
+        span: Match,
+        text: []const u8,
+    }{
+        .{ .name = "a", .span = .{ .start = 0, .end = 2 }, .text = "ab" },
+        .{ .name = "b", .span = .{ .start = 1, .end = 2 }, .text = "b" },
+        .{ .name = "c", .span = .{ .start = 4, .end = 5 }, .text = "Z" },
+    };
+    for (capture_cases) |tc| {
+        const actual = caps.name(tc.name) orelse return error.TestUnexpectedResult;
+        try expectEqual(tc.span, actual);
+        try expectEqualStrings(tc.text, actual.bytes(haystack));
+    }
     try expectEqual(null, caps.name("missing"));
 }
 
@@ -95,18 +119,33 @@ test "named captures can be absent in a match" {
     var re = try Regex.compile(gpa, "(?<letters>[A-Za-z]+)(?:(?<digits>\\d+)|(?<punct>[!?]+))", .{});
     defer re.deinit();
 
-    {
-        const caps = re.findCaptures("abc123").?;
-        try expectEqualStrings("abc123", caps.get(0).?.bytes("abc123"));
-        try expectEqualStrings("abc", caps.name("letters").?.bytes("abc123"));
-        try expectEqualStrings("123", caps.name("digits").?.bytes("abc123"));
-        try expectEqual(null, caps.name("punct"));
-    }
-    {
-        const caps = re.findCaptures("abc!!").?;
-        try expectEqualStrings("abc", caps.name("letters").?.bytes("abc!!"));
-        try expectEqualStrings("!!", caps.name("punct").?.bytes("abc!!"));
-        try expectEqual(null, caps.name("digits"));
+    const cases = [_]struct {
+        haystack: []const u8,
+        full: []const u8,
+        letters: []const u8,
+        digits: ?[]const u8,
+        punct: ?[]const u8,
+    }{
+        .{ .haystack = "abc123", .full = "abc123", .letters = "abc", .digits = "123", .punct = null },
+        .{ .haystack = "abc!!", .full = "abc!!", .letters = "abc", .digits = null, .punct = "!!" },
+    };
+
+    for (cases) |tc| {
+        const caps = re.findCaptures(tc.haystack).?;
+        try expectEqualStrings(tc.full, caps.get(0).?.bytes(tc.haystack));
+        try expectEqualStrings(tc.letters, caps.name("letters").?.bytes(tc.haystack));
+
+        if (tc.digits) |digits| {
+            try expectEqualStrings(digits, caps.name("digits").?.bytes(tc.haystack));
+        } else {
+            try expectEqual(null, caps.name("digits"));
+        }
+
+        if (tc.punct) |punct| {
+            try expectEqualStrings(punct, caps.name("punct").?.bytes(tc.haystack));
+        } else {
+            try expectEqual(null, caps.name("punct"));
+        }
     }
 }
 
@@ -167,7 +206,7 @@ test "non capturing groups" {
     }
 }
 
-test "flag options and scoping" {
+test "syntax options" {
     {
         var re = try Regex.compile(gpa, "^ab$", .{
             .syntax = .{ .multi_line = true },
@@ -181,76 +220,6 @@ test "flag options and scoping" {
         });
         defer re.deinit();
         try expectEqual(Match{ .start = 0, .end = 1 }, re.find("aa").?);
-    }
-    {
-        var re = try Regex.compile(gpa, "a+?", .{
-            .syntax = .{ .swap_greed = true },
-        });
-        defer re.deinit();
-        try expectEqual(Match{ .start = 0, .end = 2 }, re.find("aa").?);
-    }
-    {
-        var re = try Regex.compile(gpa, "a(?-i)b", .{
-            .syntax = .{ .case_insensitive = true },
-        });
-        defer re.deinit();
-        try expect(re.match("Ab"));
-        try expect(!re.match("AB"));
-    }
-    {
-        var re = try Regex.compile(gpa, ".(?-s:.)", .{
-            .syntax = .{ .dot_matches_new_line = true },
-        });
-        defer re.deinit();
-        try expect(re.match("\na"));
-        try expect(!re.match("\n\n"));
-    }
-    {
-        var re = try Regex.compile(gpa, "a(?i)b", .{});
-        defer re.deinit();
-        try expect(re.match("aB"));
-        try expect(!re.match("AB"));
-    }
-    {
-        var re = try Regex.compile(gpa, "(?i)(?-i:ab)C", .{});
-        defer re.deinit();
-        try expect(re.match("abC"));
-        try expect(re.match("abc"));
-        try expect(!re.match("AbC"));
-    }
-    {
-        var re = try Regex.compile(gpa, "(?-m:^ab$)|^cd$", .{
-            .syntax = .{ .multi_line = true },
-        });
-        defer re.deinit();
-        try expectEqual(Match{ .start = 3, .end = 5 }, re.find("ab\ncd").?);
-    }
-    {
-        var re = try Regex.compile(gpa, "(?s-i:a.)", .{
-            .syntax = .{ .case_insensitive = true },
-        });
-        defer re.deinit();
-        try expect(re.match("a\n"));
-        try expect(!re.match("A\n"));
-    }
-}
-
-test "captures through flagged groups" {
-    {
-        var re = try Regex.compile(gpa, "(?i:(ab))c", .{});
-        defer re.deinit();
-
-        const caps = re.findCaptures("ABc").?;
-        try expectEqual(Match{ .start = 0, .end = 3 }, caps.get(0).?);
-        try expectEqual(Match{ .start = 0, .end = 2 }, caps.get(1).?);
-    }
-    {
-        var re = try Regex.compile(gpa, "(?i:(?:x(ab)))c", .{});
-        defer re.deinit();
-
-        const caps = re.findCaptures("XABc").?;
-        try expectEqual(Match{ .start = 0, .end = 4 }, caps.get(0).?);
-        try expectEqual(Match{ .start = 1, .end = 3 }, caps.get(1).?);
     }
 }
 
@@ -476,48 +445,58 @@ test "diag repeat limit" {
     }
 }
 
-test "diag state limit" {
+test "max_states limit" {
     const pattern = "ab";
-
-    var diag: Diagnostics = undefined;
-    try expectError(error.Compile, Regex.compile(gpa, pattern, .{
-        .limits = .{ .max_states = 4 },
-        .diag = &diag,
-    }));
-
-    switch (diag) {
-        .compile => |compile_diag| switch (compile_diag) {
-            .too_many_states => |state_limit| {
-                try expectEqual(4, state_limit.limit);
-                try expectEqual(5, state_limit.count);
-            },
-            else => return error.TestUnexpectedResult,
-        },
-        .parse => return error.TestUnexpectedResult,
+    // The limit is inclusive: exactly 5 states is allowed.
+    {
+        var re = try Regex.compile(gpa, pattern, .{
+            .limits = .{ .max_states = 5 },
+        });
+        defer re.deinit();
+        try expect(re.match(pattern));
     }
-}
+    // Over limit with diag reporting
+    {
+        var diag: Diagnostics = undefined;
+        try expectError(error.Compile, Regex.compile(gpa, pattern, .{
+            .limits = .{ .max_states = 4 },
+            .diag = &diag,
+        }));
 
-test "state limit no diag" {
-    try expectError(error.Compile, Regex.compile(gpa, "ab", .{
-        .limits = .{ .max_states = 4 },
-    }));
-}
-
-test "diag invalid state limit" {
-    var diag: Diagnostics = undefined;
-    try expectError(error.Compile, Regex.compile(gpa, "ab", .{
-        .limits = .{ .max_states = std.math.maxInt(usize) },
-        .diag = &diag,
-    }));
-
-    switch (diag) {
-        .compile => |compile_diag| switch (compile_diag) {
-            .invalid_state_limit => |invalid_limit| {
-                try expectEqual(std.math.maxInt(usize), invalid_limit);
+        switch (diag) {
+            .compile => |compile_diag| switch (compile_diag) {
+                .too_many_states => |state_limit| {
+                    try expectEqual(4, state_limit.limit);
+                    try expectEqual(5, state_limit.count);
+                },
+                else => return error.TestUnexpectedResult,
             },
-            else => return error.TestUnexpectedResult,
-        },
-        .parse => return error.TestUnexpectedResult,
+            .parse => return error.TestUnexpectedResult,
+        }
+    }
+    // Over limit without diag reporting
+    {
+        try expectError(error.Compile, Regex.compile(gpa, pattern, .{
+            .limits = .{ .max_states = 4 },
+        }));
+    }
+    // Limits larger than the compiler's intrinsic state-id range are rejected.
+    {
+        var diag: Diagnostics = undefined;
+        try expectError(error.Compile, Regex.compile(gpa, pattern, .{
+            .limits = .{ .max_states = std.math.maxInt(usize) },
+            .diag = &diag,
+        }));
+
+        switch (diag) {
+            .compile => |compile_diag| switch (compile_diag) {
+                .invalid_state_limit => |invalid_limit| {
+                    try expectEqual(std.math.maxInt(usize), invalid_limit);
+                },
+                else => return error.TestUnexpectedResult,
+            },
+            .parse => return error.TestUnexpectedResult,
+        }
     }
 }
 

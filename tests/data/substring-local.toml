@@ -1,0 +1,75 @@
+# Zig-added search-window regression cases.
+#
+# Rust's upstream testdata has a small `substring.toml` file and a number of
+# related bounds cases spread across other suites. This project imports only a
+# subset of those suites, so these local cases pin the window/assertion behavior
+# that is easy to regress in this engine.
+
+[[test]]
+name = "text-start-anchor-uses-haystack-start"
+regex = '\Aab'
+haystack = "zab"
+bounds = { start = 1, end = 3 }
+anchored = true
+matches = []
+
+[[test]]
+name = "text-end-anchor-uses-haystack-end"
+regex = 'a\z'
+haystack = "ab"
+bounds = { start = 0, end = 1 }
+anchored = true
+matches = []
+
+[[test]]
+name = "text-end-anchor-with-nonzero-window-start"
+regex = 'ab\z'
+haystack = "zab"
+bounds = { start = 1, end = 3 }
+anchored = true
+matches = [[1, 3]]
+
+[[test]]
+name = "word-boundary-left-context-outside-window"
+regex = '\b[0-9]+\b'
+haystack = "a123"
+bounds = { start = 1, end = 4 }
+matches = []
+
+[[test]]
+name = "word-boundary-right-context-outside-window"
+regex = '\b[0-9]+\b'
+haystack = "123a"
+bounds = { start = 0, end = 3 }
+matches = []
+
+[[test]]
+name = "word-boundary-clean-window"
+regex = '\b[0-9]+\b'
+haystack = " 123!"
+bounds = { start = 1, end = 4 }
+matches = [[1, 4]]
+
+[[test]]
+name = "empty-pattern-at-bounded-end"
+regex = ''
+haystack = "abc"
+bounds = { start = 3, end = 3 }
+anchored = true
+matches = [[3, 3]]
+
+[[test]]
+name = "line-end-anchor-at-bounded-text-end"
+regex = '$'
+haystack = "abc"
+bounds = { start = 3, end = 3 }
+anchored = true
+matches = [[3, 3]]
+
+[[test]]
+name = "line-end-anchor-ignores-interior-window-end"
+regex = '$'
+haystack = "abc"
+bounds = { start = 1, end = 1 }
+anchored = true
+matches = []

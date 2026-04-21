@@ -16,3 +16,8 @@ RE2 family's linear time matching guarantee.
 - Reused thread lists: the Pike VM allocates thread storage once and swaps two lists per input byte.
 - Sparse-set dedup: active matcher states use sparse/dense storage for O(1) membership checks and compact iteration.
 - Generation-based epsilon visitation: epsilon-closure clears are usually O(1), with full reset only on generation wraparound.
+
+## Future explorations
+
+- Parsing: Instead of keeping track span for error reporting in the main path, re parse to report errors.
+- Parsing: Eliminate individual slices?

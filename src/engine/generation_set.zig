@@ -40,3 +40,37 @@ pub fn GenerationSet(comptime T: type) type {
         }
     };
 }
+
+const testing = std.testing;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
+
+test "add contains and clear" {
+    var set = try GenerationSet(u8).init(testing.allocator, 4);
+    defer set.deinit(testing.allocator);
+
+    try expect(!set.contains(2));
+    try expect(set.add(2));
+    try expect(set.contains(2));
+    try expect(!set.add(2));
+
+    set.clear();
+    try expect(!set.contains(2));
+    try expect(set.add(2));
+    try expect(set.contains(2));
+}
+
+test "wraps" {
+    var set = try GenerationSet(u2).init(testing.allocator, 4);
+    defer set.deinit(testing.allocator);
+
+    try expect(set.add(1));
+    set.generation = std.math.maxInt(u2);
+    try expect(set.add(2));
+
+    set.clear();
+    try expectEqual(1, set.generation);
+    try expect(!set.contains(1));
+    try expect(!set.contains(2));
+    try expect(set.add(1));
+}

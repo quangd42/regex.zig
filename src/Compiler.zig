@@ -71,6 +71,11 @@ fn compileAst(c: *Compiler, ast: *Ast) Error!Program {
     c.states.items[start_capture].capture.out = frag.id;
     frag = c.cat(frag, try c.cap(1));
     _ = c.cat(frag, try c.state(.match));
+
+    if (builtin.mode == .Debug) {
+        assert(c.matcher_count == countMatcherStates(c.states.items));
+    }
+
     return .{
         .states = try c.states.toOwnedSlice(a),
         .ranges = try c.ranges.toOwnedSlice(a),
@@ -108,6 +113,8 @@ fn compileNode(c: *Compiler, ast: *const Ast, node_index: Ast.Node.Index) Error!
                     return c.compileNode(ast, gr.node);
                 },
             };
+            const before: SyntaxOptions = c.options.syntax;
+            defer c.options.syntax = before;
             const slot_2k = @as(u32, capture_index) * 2;
             const frag = c.cat(try c.cap(slot_2k), try c.compileNode(ast, gr.node));
             return c.cat(frag, try c.cap(slot_2k + 1));
@@ -121,8 +128,6 @@ fn compileNode(c: *Compiler, ast: *const Ast, node_index: Ast.Node.Index) Error!
                 // Occurs in empty alternation branch
                 return c.empty();
             }
-            const before: SyntaxOptions = c.options.syntax;
-            defer c.options.syntax = before;
             var frag = try c.compileNode(ast, concat.nodes[0]);
             for (concat.nodes[1..]) |index| {
                 frag = c.cat(frag, try c.compileNode(ast, index));
@@ -130,8 +135,6 @@ fn compileNode(c: *Compiler, ast: *const Ast, node_index: Ast.Node.Index) Error!
             return frag;
         },
         .alternation => |alt| {
-            const before: SyntaxOptions = c.options.syntax;
-            defer c.options.syntax = before;
             switch (alt.nodes.len) {
                 0 => return c.empty(),
                 1 => return c.compileNode(ast, alt.nodes[0]),
@@ -544,6 +547,17 @@ fn normalizeTailRanges(c: *Compiler, start: usize) usize {
     const len = normalizeRanges(c.ranges.items[start..]);
     c.ranges.shrinkRetainingCapacity(start + len);
     return len;
+}
+
+fn countMatcherStates(states: []const State) u32 {
+    var count: u32 = 0;
+    for (states) |s| {
+        switch (s) {
+            .char, .ranges, .any, .fail, .match => count += 1,
+            .empty, .capture, .assert, .alt, .alt2 => {},
+        }
+    }
+    return count;
 }
 
 /// Normalize + negate the ranges at `Compiler.ranges[start..]` in place.
@@ -1154,10 +1168,32 @@ test "assertions" {
     }, .{ .syntax = .{ .multi_line = true } });
 }
 
+test "literal prefix" {
+    const test_cases = &[_]struct {
+        pattern: []const u8,
+        expected: ?u8,
+    }{
+        .{ .pattern = "abc", .expected = 'a' },
+        .{ .pattern = "(a)", .expected = 'a' },
+        .{ .pattern = "(?:)abc", .expected = 'a' },
+        .{ .pattern = "a|b", .expected = null },
+        .{ .pattern = "^a", .expected = null },
+        .{ .pattern = ".", .expected = null },
+        .{ .pattern = "[ab]", .expected = null },
+    };
+
+    for (test_cases) |tc| {
+        var prog = try Compiler.compile(testing.allocator, tc.pattern, .{});
+        defer prog.deinit();
+        try testing.expectEqual(tc.expected, prog.literalPrefix());
+    }
+}
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
+const builtin = @import("builtin");
 
 const Ast = @import("Ast.zig");
 const errors = @import("errors.zig");

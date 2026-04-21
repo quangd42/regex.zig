@@ -41,8 +41,8 @@ The current implementation includes:
   - swap-greed (`U`)
 - leftmost-first search semantics
 
-Support is ASCII only. The source-of-truth syntax/backend capability matrix is
-in [tests/harness/capabilities.zig](tests/harness/capabilities.zig).
+Support is ASCII only. The current syntax surface is tracked in
+[docs/supported-syntax.md](docs/supported-syntax.md).
 
 ## Using the Package
 
