@@ -3,7 +3,8 @@
 pub const Regex = @import("Regex.zig");
 pub const Compiler = @import("Compiler.zig");
 pub const Program = @import("Program.zig");
-pub const PikeVm = @import("engine.zig").PikeVm;
+pub const iterator = @import("iterator.zig");
+pub const PikeVm = @import("Engine/PikeVm.zig");
 
 const errors = @import("errors.zig");
 pub const Diagnostics = errors.Diagnostics;

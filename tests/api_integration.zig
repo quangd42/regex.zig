@@ -84,6 +84,31 @@ test "find*In with search window" {
     try expectEqual(null, re.findCapturesIn(no));
 }
 
+test "findAll iterator" {
+    {
+        var re = try Regex.compile(gpa, "a", .{});
+        defer re.deinit();
+
+        var iter = re.findAll("aba");
+        try expectEqual(Match{ .start = 0, .end = 1 }, iter.next().?);
+        try expectEqual(Match{ .start = 2, .end = 3 }, iter.next().?);
+        try expectEqual(null, iter.next());
+    }
+    {
+        var re = try Regex.compile(gpa, "(?<key>\\w+)=(?<val>\\w+)", .{});
+        defer re.deinit();
+
+        const haystack = "a=1 b=2";
+        var iter = re.findAllCaptures(haystack);
+
+        const caps = iter.next().?;
+        try expectEqualStrings("a", caps.name("key").?.bytes(haystack));
+        try expectEqualStrings("1", caps.name("val").?.bytes(haystack));
+        try expect(iter.next() != null);
+        try expectEqual(null, iter.next());
+    }
+}
+
 test "named capture metadata and lookup" {
     var re = try Regex.compile(gpa, "(?<a>.(?<b>.))(.)(?:.)(?<c>.)", .{});
     defer re.deinit();

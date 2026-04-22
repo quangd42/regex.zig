@@ -1,14 +1,22 @@
-const Regex = @import("Regex.zig");
+const std = @import("std");
 const types = @import("types.zig");
 const Input = types.Input;
 const Match = types.Match;
 const Captures = types.Captures;
 
-const IterKind = enum { match, captures };
-pub const MatchIterator = Iterator(.match);
-pub const CapturesIterator = Iterator(.captures);
+pub const IterKind = enum { match, captures };
 
-fn Iterator(comptime kind: IterKind) type {
+pub fn Iterator(comptime kind: IterKind, comptime Engine: type) type {
+    const method_name = switch (kind) {
+        .match => "find",
+        .captures => "findCaptures",
+    };
+    if (!std.meta.hasMethod(Engine, method_name)) {
+        @compileError(std.fmt.comptimePrint(
+            "Iterator(.{s}, {s}) requires `{s}` to define method named `{s}`",
+            .{ @tagName(kind), @typeName(Engine), @typeName(Engine), method_name },
+        ));
+    }
     return struct {
         const Iter = @This();
 
@@ -17,15 +25,22 @@ fn Iterator(comptime kind: IterKind) type {
             .captures => Captures,
         };
 
-        regex: *Regex,
+        engine: *Engine,
         input: Input,
         last_match_end: ?usize = null,
+
+        pub fn init(engine: *Engine, input: Input) Iter {
+            return .{
+                .engine = engine,
+                .input = input,
+            };
+        }
 
         pub fn next(iter: *Iter) ?Result {
             while (iter.input.start <= iter.input.end) {
                 const result: Result = switch (kind) {
-                    .match => iter.regex.findIn(iter.input),
-                    .captures => iter.regex.findCapturesIn(iter.input),
+                    .match => iter.engine.find(iter.input),
+                    .captures => iter.engine.findCaptures(iter.input),
                 } orelse return null;
 
                 const span: Match = switch (kind) {

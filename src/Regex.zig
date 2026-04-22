@@ -2,8 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const Compiler = @import("Compiler.zig");
-const engines = @import("engine.zig");
-const PikeVm = engines.PikeVm;
+const Engine = @import("Engine.zig");
 const errors = @import("errors.zig");
 pub const Diagnostics = errors.Diagnostics;
 pub const Span = errors.Span;
@@ -16,15 +15,17 @@ pub const Captures = types.Captures;
 const iterator = @import("iterator.zig");
 
 const Regex = @This();
-engine: PikeVm,
 prog: *Program,
+engine: Engine,
 
 pub fn compile(gpa: Allocator, pattern: []const u8, options: CompileOptions) !Regex {
     const prog = try Compiler.compile(gpa, pattern, options);
     errdefer prog.deinit();
 
-    // TODO: choose engine based on pattern
-    return .{ .prog = prog, .engine = try .init(gpa, prog) };
+    return .{
+        .prog = prog,
+        .engine = try .init(gpa, prog),
+    };
 }
 
 pub fn deinit(re: *Regex) void {
@@ -85,13 +86,13 @@ pub fn findCapturesIn(re: *Regex, input: Input) ?Captures {
 
 /// Iterator over successive non-overlapping matches.
 /// See `findAll` and `findAllIn`.
-pub const MatchIterator = iterator.MatchIterator;
+pub const MatchIterator = iterator.Iterator(.match, Engine);
 
 /// Iterator over successive non-overlapping matches with capture group data.
 /// Each yielded `Captures` is invalidated by the next `next()` call. Use
 /// `Captures.copy(dest)` to persist data across iterations.
 /// See `findAllCaptures` and `findAllCapturesIn`.
-pub const CapturesIterator = iterator.CapturesIterator;
+pub const CapturesIterator = iterator.Iterator(.captures, Engine);
 
 /// Return an iterator over all successive non-overlapping matches in the haystack.
 pub fn findAll(re: *Regex, haystack: []const u8) MatchIterator {
@@ -101,7 +102,7 @@ pub fn findAll(re: *Regex, haystack: []const u8) MatchIterator {
 /// Return an iterator over all successive non-overlapping matches
 /// within the given input window.
 pub fn findAllIn(re: *Regex, input: Input) MatchIterator {
-    return .{ .regex = re, .input = input };
+    return .init(&re.engine, input);
 }
 
 /// Return an iterator over all successive non-overlapping matches
@@ -116,7 +117,7 @@ pub fn findAllCaptures(re: *Regex, haystack: []const u8) CapturesIterator {
 
 /// Like `findAllCaptures`, but with a custom input window.
 pub fn findAllCapturesIn(re: *Regex, input: Input) CapturesIterator {
-    return .{ .regex = re, .input = input };
+    return .init(&re.engine, input);
 }
 
 /// Returns the user-visible capture index for `name`, or `null` when the name does not exist.

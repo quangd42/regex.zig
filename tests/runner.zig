@@ -5,6 +5,7 @@ const harness = @import("harness.zig");
 const suites = [_]harness.Suite{
     @import("cases/empty.zig").suite,
     @import("cases/flags.zig").suite,
+    @import("cases/match_iterator.zig").suite,
     @import("cases/multiline.zig").suite,
     @import("cases/search_window.zig").suite,
     @import("fowler/basic.zig").suite,
@@ -13,7 +14,7 @@ const suites = [_]harness.Suite{
 };
 
 pub fn main() void {
-    var arg_buffer: [8192]u8 = undefined;
+    var arg_buffer: [1024]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&arg_buffer);
     const parsed = parseArgs(fba.allocator()) catch |err| switch (err) {
         error.InvalidArgument, error.MissingArgumentValue => {
@@ -116,18 +117,21 @@ fn runOne(
 ) void {
     var gpa_state: std.heap.GeneralPurposeAllocator(.{}) = .init;
     const gpa = gpa_state.allocator();
+    var stderr_buf: [4096]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&stderr_buf);
+    const stderr = &stderr_writer.interface;
 
     var failed = false;
 
-    suite.runCase(gpa, options, tc) catch |err| switch (err) {
-        else => {
-            failed = true;
-            std.debug.print("FAIL {s}/{s} ({s})\n", .{ suite.name, tc.name, @errorName(err) });
-            if (@errorReturnTrace()) |stack_trace| {
-                std.debug.dumpStackTrace(stack_trace.*);
-            }
-        },
+    harness.runCase(gpa, stderr, suite.name, tc, options) catch |err| {
+        stderr.flush() catch {};
+        failed = true;
+        std.debug.print("FAIL {s}/{s} ({s})\n", .{ suite.name, tc.name, @errorName(err) });
+        if (@errorReturnTrace()) |stack_trace| {
+            std.debug.dumpStackTrace(stack_trace.*);
+        }
     };
+    stderr.flush() catch {};
 
     const leaked = gpa_state.deinit() == .leak;
 
