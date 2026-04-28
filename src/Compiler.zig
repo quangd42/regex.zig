@@ -4,42 +4,24 @@
 const Compiler = @This();
 
 states: ArrayList(State) = .empty,
-ranges: ArrayList(ByteRange) = .empty,
+transitions: ArrayList(Transition) = .empty,
 branches: ArrayList(StateId) = .empty,
 arena: std.heap.ArenaAllocator,
-options: Options,
 
 /// See `Program.matcher_count`.
 matcher_count: u32 = 0,
 
+/// Mutable syntax flags during parsing
+flags: SyntaxFlags,
+/// Hard limit on state count
+max_states: usize,
+/// Diagnostics
+diag: ?*Diagnostics,
+
+/// Char class builder
+cls_builder: ClassBuilder,
+
 const Error = error{Compile} || Allocator.Error;
-
-const Options = struct {
-    // Syntax
-    syntax: SyntaxOptions,
-    // Limits
-    max_states: usize,
-    // Diag
-    diag: ?*Diagnostics,
-
-    fn fromTopLevel(options: TopLevelOptions) !Options {
-        return .{
-            .syntax = options.syntax,
-            .max_states = try maxState(options.limits.max_states, options.diag),
-            .diag = options.diag,
-        };
-    }
-
-    fn maxState(configured: ?usize, diag: ?*Diagnostics) error{Compile}!usize {
-        const max = PatchList.Ptr.max;
-        const limit = configured orelse return max;
-        if (limit <= max) return limit;
-        if (diag) |d| {
-            d.* = .{ .compile = .{ .invalid_state_limit = limit } };
-        }
-        return error.Compile;
-    }
-};
 
 /// Resources allocated are owned by Program after compilation is done, and caller is expected
 /// to call Program.deinit() to free them.
@@ -52,9 +34,13 @@ pub fn compile(gpa: Allocator, pattern: []const u8, options: TopLevelOptions) !*
     defer ast.deinit();
     var compiler: Compiler = .{
         .arena = .init(gpa),
-        .options = try .fromTopLevel(options),
+        .cls_builder = .init(gpa),
+        .flags = options.syntax,
+        .max_states = try getMaxState(options.limits.max_states, options.diag),
+        .diag = options.diag,
     };
     errdefer compiler.arena.deinit();
+    defer compiler.cls_builder.deinit();
     return compiler.compileAst(&ast);
 }
 
@@ -81,7 +67,7 @@ fn compileAst(c: *Compiler, ast: *Ast) Error!*Program {
     const prog = try a.create(Program);
     prog.* = .{
         .states = try c.states.toOwnedSlice(a),
-        .ranges = try c.ranges.toOwnedSlice(a),
+        .transitions = try c.transitions.toOwnedSlice(a),
         .branches = try c.branches.toOwnedSlice(a),
         // Important that we move capture_info **after** fallible actions above, so it
         // can be cleaned up by `ast.deinit` in the fail path.
@@ -101,24 +87,24 @@ fn compileNode(c: *Compiler, ast: *const Ast, node_index: Ast.Node.Index) Error!
         },
         .dot => {
             const any_kind: State.Any.Kind =
-                if (c.options.syntax.dot_matches_new_line) .all else .not_lf;
+                if (c.flags.dot_matches_new_line) .all else .not_lf;
             return c.state(.{ .any = .{ .kind = any_kind, .out = 0 } });
         },
-        .class_perl => |cl| return c.namedClass(perlRanges(cl), cl.negated),
-        .class => |cl| return c.class(ast, cl),
+        .class_perl => |cls| return c.namedClass(cls),
+        .class => |cls| return c.class(ast, cls),
         .group => |gr| {
             const capture_index = switch (gr.kind) {
                 .numbered => |index| index,
                 .named => |named_capture| named_capture.index,
                 .non_capturing => |flags| {
-                    const before: SyntaxOptions = c.options.syntax;
-                    defer c.options.syntax = before;
+                    const before: SyntaxFlags = c.flags;
+                    defer c.flags = before;
                     c.applySyntaxFlags(flags);
                     return c.compileNode(ast, gr.node);
                 },
             };
-            const before: SyntaxOptions = c.options.syntax;
-            defer c.options.syntax = before;
+            const before: SyntaxFlags = c.flags;
+            defer c.flags = before;
             const slot_2k = @as(u32, capture_index) * 2;
             const frag = c.cat(try c.cap(slot_2k), try c.compileNode(ast, gr.node));
             return c.cat(frag, try c.cap(slot_2k + 1));
@@ -167,7 +153,7 @@ fn compileNode(c: *Compiler, ast: *const Ast, node_index: Ast.Node.Index) Error!
         },
         .repetition => |rep| {
             const Kind = Ast.Repetition.Kind;
-            const lazy = rep.lazy_suffix != c.options.syntax.swap_greed;
+            const lazy = rep.lazy_suffix != c.flags.swap_greed;
             rep_kind: switch (rep.kind) {
                 .zero_or_one => {
                     return c.quest(try c.compileNode(ast, rep.node), lazy);
@@ -220,8 +206,8 @@ fn compileNode(c: *Compiler, ast: *const Ast, node_index: Ast.Node.Index) Error!
         .assertion => |asrt| {
             return c.state(.{ .assert = .{
                 .pred = switch (asrt) {
-                    .start_line_or_text => if (c.options.syntax.multi_line) .start_line else .start_text,
-                    .end_line_or_text => if (c.options.syntax.multi_line) .end_line else .end_text,
+                    .start_line_or_text => if (c.flags.multi_line) .start_line else .start_text,
+                    .end_line_or_text => if (c.flags.multi_line) .end_line else .end_text,
                     .start_text => .start_text,
                     .end_text => .end_text,
                     .word_boundary => .word_boundary,
@@ -234,14 +220,14 @@ fn compileNode(c: *Compiler, ast: *const Ast, node_index: Ast.Node.Index) Error!
 }
 
 fn err(c: *Compiler, compile_diag: Diagnostics.Compile) error{Compile} {
-    if (c.options.diag) |diagnostics| {
+    if (c.diag) |diagnostics| {
         diagnostics.* = .{ .compile = compile_diag };
     }
     return error.Compile;
 }
 
 fn checkStateLimit(c: *Compiler) error{Compile}!void {
-    const limit = c.options.max_states;
+    const limit = c.max_states;
     if (c.states.items.len < limit) return;
     return c.err(.{ .too_many_states = .{
         .limit = limit,
@@ -249,12 +235,22 @@ fn checkStateLimit(c: *Compiler) error{Compile}!void {
     } });
 }
 
+fn getMaxState(configured: ?usize, diag: ?*Diagnostics) error{Compile}!usize {
+    const max = PatchList.Ptr.max;
+    const limit = configured orelse return max;
+    if (limit <= max) return limit;
+    if (diag) |d| {
+        d.* = .{ .compile = .{ .invalid_state_limit = limit } };
+    }
+    return error.Compile;
+}
+
 fn emitState(c: *Compiler, s: State) !StateId {
     try c.checkStateLimit();
     const id: StateId = @intCast(c.states.items.len);
     try c.states.append(c.arena.allocator(), s);
     switch (s) {
-        .char, .ranges, .any, .fail, .match => c.matcher_count += 1,
+        .byte_range, .sparse, .any, .fail, .match => c.matcher_count += 1,
         .empty, .capture, .assert, .alt, .alt2 => {},
     }
     return id;
@@ -265,14 +261,14 @@ fn state(c: *Compiler, s: State) !Frag {
     return .{
         .id = id,
         .outs = switch (s) {
-            .char, .ranges, .any, .empty, .capture, .assert => .fromOne(id),
-            .fail, .match, .alt, .alt2 => .empty,
+            .byte_range, .any, .empty, .capture, .assert => .fromStateOut(id),
+            .sparse, .fail, .match, .alt, .alt2 => .empty,
         },
         // .alt and .alt2 are typically emitted before their branch fragments are
         // known, so callers overwrite their nullable value once children are
         // attached.
         .nullable = switch (s) {
-            .char, .ranges, .any, .alt, .alt2, .fail => false,
+            .byte_range, .sparse, .any, .alt, .alt2, .fail => false,
             .empty, .capture, .assert, .match => true,
         },
     };
@@ -307,10 +303,10 @@ fn quest(c: *Compiler, f1: Frag, lazy: bool) !Frag {
     const alt = &c.states.items[frag.id].alt2;
     if (lazy) {
         alt.right = f1.id;
-        frag.outs = .fromOne(frag.id);
+        frag.outs = .fromAlt2Left(frag.id);
     } else {
         alt.left = f1.id;
-        frag.outs = .fromOneRight(frag.id);
+        frag.outs = .fromAlt2Right(frag.id);
     }
     frag.outs = frag.outs.append(c, f1.outs);
     frag.nullable = true;
@@ -329,10 +325,10 @@ fn loop(c: *Compiler, f1: Frag, lazy: bool) !Frag {
     const alt = &c.states.items[frag.id].alt2;
     if (lazy) {
         alt.right = f1.id;
-        frag.outs = .fromOne(frag.id);
+        frag.outs = .fromAlt2Left(frag.id);
     } else {
         alt.left = f1.id;
-        frag.outs = .fromOneRight(frag.id);
+        frag.outs = .fromAlt2Right(frag.id);
     }
     f1.outs.patch(c, frag.id);
     frag.nullable = true;
@@ -371,107 +367,128 @@ fn empty(c: *Compiler) !Frag {
     return c.state(.{ .empty = .{ .out = 0 } });
 }
 
+/// Builder methods do not preserve canonical ordering (sorted, non-overlapping,
+/// non-adjacent ranges). Call `negate` or `finalize` before consuming ranges
+/// that require canonical ordering.
+const ClassBuilder = struct {
+    bytes: ByteRangeSet = .empty,
+    tmp_bytes: ByteRangeSet = .empty,
+    arena: std.heap.ArenaAllocator,
+
+    fn init(gpa: Allocator) ClassBuilder {
+        return .{ .arena = .init(gpa) };
+    }
+
+    fn deinit(self: *ClassBuilder) void {
+        self.arena.deinit();
+    }
+
+    fn clear(self: *ClassBuilder) void {
+        self.bytes.clear();
+        self.tmp_bytes.clear();
+    }
+
+    fn addRange(self: *ClassBuilder, range: ByteRange, fold: bool) !void {
+        const a = self.arena.allocator();
+        try self.bytes.append(a, range, fold);
+    }
+
+    fn addNamedClass(self: *ClassBuilder, cls: anytype, fold: bool) !void {
+        const a = self.arena.allocator();
+        try self.bytes.appendSlice(a, named_class.getRanges(cls), fold);
+        if (named_class.isNegated(cls)) try self.bytes.negate(a);
+    }
+
+    fn appendClassItem(self: *ClassBuilder, item: Ast.Class.Item, fold: bool) !void {
+        const a = self.arena.allocator();
+        switch (item) {
+            .literal => |lit| {
+                try self.bytes.append(a, .{ .from = lit.char(), .to = lit.char() }, fold);
+            },
+            .range => |r| {
+                try self.bytes.append(a, .{ .from = r.from.char(), .to = r.to.char() }, fold);
+            },
+            inline .perl, .ascii => |cls| try self.appendNamedClassItem(cls, fold),
+        }
+    }
+
+    fn appendNamedClassItem(self: *ClassBuilder, cls: anytype, fold: bool) !void {
+        const a = self.arena.allocator();
+        const ranges = named_class.getRanges(cls);
+        if (!named_class.isNegated(cls)) return self.bytes.appendSlice(a, ranges, fold);
+
+        self.tmp_bytes.clear();
+        try self.tmp_bytes.appendSlice(a, ranges, fold);
+        try self.tmp_bytes.negate(a);
+        try self.bytes.appendSlice(a, self.tmp_bytes.slice(), false);
+    }
+
+    fn negate(self: *ClassBuilder) !void {
+        try self.bytes.negate(self.arena.allocator());
+    }
+
+    fn finalize(self: *ClassBuilder, c: *Compiler) !Frag {
+        defer self.clear();
+        try self.bytes.canonicalize();
+        switch (self.bytes.len()) {
+            0 => return c.state(.fail),
+            1 => {
+                const range = self.bytes.ranges.items[0];
+                return c.state(.{ .byte_range = .{
+                    .from = range.from,
+                    .to = range.to,
+                    .out = 0,
+                } });
+            },
+            else => {
+                const start = c.transitions.items.len;
+                for (self.bytes.ranges.items) |range| {
+                    try c.transitions.append(c.arena.allocator(), .{
+                        .from = range.from,
+                        .to = range.to,
+                        .out = 0,
+                    });
+                }
+                var frag = try c.state(.{ .sparse = .{
+                    .start = @intCast(start),
+                    .len = @intCast(self.bytes.len()),
+                } });
+                frag.outs = .fromTransitionOuts(c, start, self.bytes.len());
+                return frag;
+            },
+        }
+    }
+};
+
 fn literal(c: *Compiler, lit: Ast.Literal) !Frag {
     const byte = lit.char();
-    if (!c.options.syntax.case_insensitive) {
-        return c.state(.{ .char = .{ .byte = byte, .out = 0 } });
-    }
-    const folded = asciiSimpleFold(byte) orelse
-        return c.state(.{ .char = .{ .byte = byte, .out = 0 } });
-
-    const a = c.arena.allocator();
-    const start = c.ranges.items.len;
-    try c.ranges.ensureUnusedCapacity(a, 2);
-    const first = @min(byte, folded);
-    const second = @max(byte, folded);
-    c.ranges.appendAssumeCapacity(.{ .from = first, .to = first });
-    c.ranges.appendAssumeCapacity(.{ .from = second, .to = second });
-    return c.state(.{ .ranges = .{
-        .start = @intCast(start),
-        .len = 2,
-        .negated = false,
-        .out = 0,
-    } });
+    c.cls_builder.clear();
+    try c.cls_builder.addRange(.init(byte, byte), c.flags.case_insensitive);
+    return c.cls_builder.finalize(c);
 }
 
-/// Compiles a top-level named class (for example `\w`) into a matcher fragment.
-/// Non-negated inputs defer normalization in `appendNamedClass`, so this function
-/// performs that final normalize pass before emitting the state.
-fn namedClass(c: *Compiler, source: []const ByteRange, negated: bool) !Frag {
-    const start = c.ranges.items.len;
-    const len = try c.appendNamedClass(source, negated) orelse c.normalizeTailRanges(start);
-    return c.finishTailClass(start, len);
+fn namedClass(c: *Compiler, cls: anytype) !Frag {
+    c.cls_builder.clear();
+    try c.cls_builder.addNamedClass(cls, c.flags.case_insensitive);
+    return c.cls_builder.finalize(c);
 }
 
-/// Compiles a bracket class. It appends all items to Compiler.ranges, then normalizes
-/// them (the class tail segment) once at the class boundary and negates the result if necessary.
+/// Compiles a bracket class by collecting all items, folding them if necessary,
+/// then canonicalizing them. Class negation is done once at the end if necessary.
 fn class(c: *Compiler, ast: *const Ast, cls: Ast.Class) !Frag {
-    const start = c.ranges.items.len;
+    c.cls_builder.clear();
     for (ast.classItems(cls)) |item| {
-        try c.appendClassItem(item);
+        try c.cls_builder.appendClassItem(item, c.flags.case_insensitive);
     }
 
-    const len = if (cls.negated) blk: {
-        try c.ranges.ensureUnusedCapacity(c.arena.allocator(), 1);
-        break :blk c.negateTailRanges(start);
-    } else c.normalizeTailRanges(start);
-    return c.finishTailClass(start, len);
-}
-
-/// Appends a class item into the current class tail segment.
-/// Literal/range items always append raw/folded ranges, while named items may
-/// normalize immediately only when negated.
-fn appendClassItem(c: *Compiler, item: Ast.Class.Item) !void {
-    const a = c.arena.allocator();
-    switch (item) {
-        .literal => |lit| {
-            try c.ranges.ensureUnusedCapacity(a, c.classItemUpperBound(item));
-            c.foldRangeAssumeCapacity(lit.char(), lit.char());
-        },
-        .range => |range| {
-            try c.ranges.ensureUnusedCapacity(a, c.classItemUpperBound(item));
-            c.foldRangeAssumeCapacity(
-                range.from.char(),
-                range.to.char(),
-            );
-        },
-        .perl => |perl| {
-            // Only negated named items are normalized. Non-negated items
-            // are left for the containing class's final normalize pass.
-            _ = try c.appendNamedClass(perlRanges(perl), perl.negated);
-        },
-        .ascii => |ascii| {
-            // Only negated named items are normalized. Non-negated items
-            // are left for the containing class's final normalize pass.
-            _ = try c.appendNamedClass(asciiRanges(ascii), ascii.negated);
-        },
-    }
-}
-
-/// Appends a named class into the current class tail segment.
-///
-/// Returns:
-/// - `null`: when `negated == false`; this function only appends/folds and leaves
-///   normalization to the caller so it can be done with other class items.
-/// - `len`: the appended tail is already normalized and negated, and `len` is the
-///   final logical segment length.
-fn appendNamedClass(c: *Compiler, source: []const ByteRange, negated: bool) !?usize {
-    const start = c.ranges.items.len;
-    const needed_capacity = c.namedClassUpperBound(source.len, negated);
-    try c.ranges.ensureUnusedCapacity(c.arena.allocator(), needed_capacity);
-
-    for (source) |range| {
-        c.foldRangeAssumeCapacity(range.from, range.to);
-    }
-
-    if (!negated) return null;
-    return c.negateTailRanges(start);
+    if (cls.negated) try c.cls_builder.negate();
+    return c.cls_builder.finalize(c);
 }
 
 /// Apply parsed `Ast.Flags` to `SyntaxOptions`. `Ast.Flags` value is assumed to be
 /// structurally correct: each flag and `-` only appears once.
 fn applySyntaxFlags(c: *Compiler, flags: Ast.Flags) void {
-    const opts = &c.options.syntax;
+    const opts = &c.flags;
     var flag_value = true;
     for (flags.slice()) |item| {
         switch (item) {
@@ -484,276 +501,15 @@ fn applySyntaxFlags(c: *Compiler, flags: Ast.Flags) void {
     }
 }
 
-/// ASCII-only folding via range overlap arithmetic.
-fn foldRangeAssumeCapacity(
-    c: *Compiler,
-    from: u8,
-    to: u8,
-) void {
-    c.ranges.appendAssumeCapacity(.{ .from = from, .to = to });
-    if (!c.options.syntax.case_insensitive) return;
-    if (to < 'A' or from > 'z') return;
-
-    if (intersectByteRange(from, to, 'A', 'Z')) |upper| {
-        c.ranges.appendAssumeCapacity(.{
-            .from = upper.from + 32,
-            .to = upper.to + 32,
-        });
-    }
-    if (intersectByteRange(from, to, 'a', 'z')) |lower| {
-        c.ranges.appendAssumeCapacity(.{
-            .from = lower.from - 32,
-            .to = lower.to - 32,
-        });
-    }
-}
-
-fn intersectByteRange(from: u8, to: u8, overlap_from: u8, overlap_to: u8) ?ByteRange {
-    if (to < overlap_from or from > overlap_to) return null;
-    return .{
-        .from = @max(from, overlap_from),
-        .to = @min(to, overlap_to),
-    };
-}
-
-fn asciiSimpleFold(byte: u8) ?u8 {
-    return switch (byte) {
-        'A'...'Z' => byte + 32,
-        'a'...'z' => byte - 32,
-        else => null,
-    };
-}
-
-/// Returns a safe upper bound for ranges appended by one class item.
-/// Used to reserve per-item capacity before `appendAssumeCapacity` calls.
-fn classItemUpperBound(c: *Compiler, item: Ast.Class.Item) usize {
-    return switch (item) {
-        .literal, .range => if (c.options.syntax.case_insensitive) 3 else 1,
-        .perl => |perl| c.namedClassUpperBound(perlRanges(perl).len, perl.negated),
-        .ascii => |ascii| c.namedClassUpperBound(asciiRanges(ascii).len, ascii.negated),
-    };
-}
-
-/// Returns a safe upper bound for a named class expansion in current mode.
-/// Case folding can expand each source range up to 3 ranges, and negation can
-/// add at most one additional range.
-fn namedClassUpperBound(c: *Compiler, source_len: usize, negated: bool) usize {
-    var n = if (c.options.syntax.case_insensitive) source_len * 3 else source_len;
-    if (negated) n += 1;
-    return n;
-}
-
-/// Normalizes `ranges[start..]` in place (sort + merge) and truncates stale tail.
-/// Returns the logical normalized length for the segment.
-fn normalizeTailRanges(c: *Compiler, start: usize) usize {
-    const len = normalizeRanges(c.ranges.items[start..]);
-    c.ranges.shrinkRetainingCapacity(start + len);
-    return len;
-}
-
 fn countMatcherStates(states: []const State) u32 {
     var count: u32 = 0;
     for (states) |s| {
         switch (s) {
-            .char, .ranges, .any, .fail, .match => count += 1,
+            .byte_range, .sparse, .any, .fail, .match => count += 1,
             .empty, .capture, .assert, .alt, .alt2 => {},
         }
     }
     return count;
-}
-
-/// Normalize + negate the ranges at `Compiler.ranges[start..]` in place.
-/// Returns the new logical tail length.
-///
-/// Negation can produce at most one more range than its normalized input.
-/// The caller must have reserved this spare slot in capacity before calling.
-fn negateTailRanges(c: *Compiler, start: usize) usize {
-    const len = c.normalizeTailRanges(start);
-
-    assert(c.ranges.capacity >= start + len + 1);
-    c.ranges.items.len = start + len + 1;
-
-    const max_byte = std.math.maxInt(u8);
-
-    var write_i: usize = start;
-    var next_from: u8 = 0;
-
-    for (start..start + len) |read_i| {
-        const range = c.ranges.items[read_i];
-        if (next_from < range.from) {
-            c.ranges.items[write_i] = .{
-                .from = next_from,
-                .to = range.from - 1,
-            };
-            write_i += 1;
-        }
-        if (range.to == max_byte) break;
-        next_from = range.to + 1;
-    } else {
-        c.ranges.items[write_i] = .{
-            .from = next_from,
-            .to = max_byte,
-        };
-        write_i += 1;
-    }
-
-    const new_len = write_i - start;
-    c.ranges.shrinkRetainingCapacity(start + new_len);
-    return new_len;
-}
-
-/// Finalizes a class tail segment into the most specific matcher state:
-/// `fail` for empty, `char` for singleton byte, otherwise `ranges`.
-fn finishTailClass(c: *Compiler, start: usize, len: usize) !Frag {
-    c.ranges.shrinkRetainingCapacity(start + len);
-
-    if (len == 0) {
-        c.ranges.shrinkRetainingCapacity(start);
-        return c.state(.fail);
-    }
-
-    const ranges = c.ranges.items[start..][0..len];
-    if (ranges.len == 1 and ranges[0].from == ranges[0].to) {
-        c.ranges.shrinkRetainingCapacity(start);
-        return c.state(.{ .char = .{ .byte = ranges[0].from, .out = 0 } });
-    }
-
-    return c.state(.{ .ranges = .{
-        .start = @intCast(start),
-        .len = @intCast(len),
-        .negated = false,
-        .out = 0,
-    } });
-}
-
-/// Helper to generate []const ByteRange from short hand tuples, such as in
-/// `perlRanges()` and `asciiRanges()`.
-fn byteRanges(comptime tuples: anytype) []const ByteRange {
-    const tuples_info = @typeInfo(@TypeOf(tuples));
-    comptime {
-        if (tuples_info != .@"struct" or !tuples_info.@"struct".is_tuple) {
-            @compileError("byteRanges expects a tuple of (from, to) byte tuples");
-        }
-    }
-
-    return comptime blk: {
-        var ranges: [tuples_info.@"struct".fields.len]ByteRange = undefined;
-        for (tuples, &ranges) |pair, *range| {
-            const pair_info = @typeInfo(@TypeOf(pair));
-            if (pair_info != .@"struct" or !pair_info.@"struct".is_tuple or pair_info.@"struct".fields.len != 2) {
-                @compileError("byteRanges entries must be 2-tuples");
-            }
-            range.* = .{ .from = @as(u8, pair[0]), .to = @as(u8, pair[1]) };
-        }
-        const final = ranges;
-        break :blk &final;
-    };
-}
-
-fn perlRanges(perl: Ast.Class.Perl) []const ByteRange {
-    return switch (perl.kind) {
-        .digit => byteRanges(.{
-            .{ '0', '9' },
-        }),
-        .word => byteRanges(.{
-            .{ '0', '9' },
-            .{ 'A', 'Z' },
-            .{ '_', '_' },
-            .{ 'a', 'z' },
-        }),
-        .space => byteRanges(.{
-            .{ '\t', '\r' },
-            .{ ' ', ' ' },
-        }),
-    };
-}
-
-fn asciiRanges(ascii: Ast.Class.Ascii) []const ByteRange {
-    return switch (ascii.kind) {
-        .alnum => byteRanges(.{
-            .{ '0', '9' },
-            .{ 'A', 'Z' },
-            .{ 'a', 'z' },
-        }),
-        .alpha => byteRanges(.{
-            .{ 'A', 'Z' },
-            .{ 'a', 'z' },
-        }),
-        .ascii => byteRanges(.{
-            .{ 0x00, 0x7F },
-        }),
-        .blank => byteRanges(.{
-            .{ '\t', '\t' },
-            .{ ' ', ' ' },
-        }),
-        .cntrl => byteRanges(.{
-            .{ 0x00, 0x1F },
-            .{ 0x7F, 0x7F },
-        }),
-        .digit => byteRanges(.{
-            .{ '0', '9' },
-        }),
-        .graph => byteRanges(.{
-            .{ '!', '~' },
-        }),
-        .lower => byteRanges(.{
-            .{ 'a', 'z' },
-        }),
-        .print => byteRanges(.{
-            .{ ' ', '~' },
-        }),
-        .punct => byteRanges(.{
-            .{ '!', '/' },
-            .{ ':', '@' },
-            .{ '[', '`' },
-            .{ '{', '~' },
-        }),
-        .space => byteRanges(.{
-            .{ '\t', '\r' },
-            .{ ' ', ' ' },
-        }),
-        .upper => byteRanges(.{
-            .{ 'A', 'Z' },
-        }),
-        .word => byteRanges(.{
-            .{ '0', '9' },
-            .{ 'A', 'Z' },
-            .{ '_', '_' },
-            .{ 'a', 'z' },
-        }),
-        .xdigit => byteRanges(.{
-            .{ '0', '9' },
-            .{ 'A', 'F' },
-            .{ 'a', 'f' },
-        }),
-    };
-}
-
-/// Sorts and merges `ranges` in place into normalized byte ranges
-/// (ascending, non-overlapping, non-adjacent).
-/// Returns the logical output length stored at the front of `ranges`.
-/// Caller is expected to truncate any stale trailing entries.
-fn normalizeRanges(ranges: []ByteRange) usize {
-    if (ranges.len == 0) return 0;
-    std.mem.sortUnstable(ByteRange, ranges, {}, lessRange);
-
-    var i: usize = 1;
-    for (ranges[1..]) |current| {
-        var previous = &ranges[i - 1];
-        if (current.from <= previous.to +| 1) {
-            previous.to = @max(previous.to, current.to);
-        } else {
-            ranges[i] = current;
-            i += 1;
-        }
-    }
-    return i;
-}
-
-fn lessRange(_: void, lhs: ByteRange, rhs: ByteRange) bool {
-    if (lhs.from < rhs.from) return true;
-    if (lhs.from > rhs.from) return false;
-    return lhs.to > rhs.to;
 }
 
 /// A compiled fragment returned by compileNode.
@@ -768,18 +524,17 @@ const Frag = struct {
     outs: PatchList,
     nullable: bool,
 
-    const zero: Frag = .{
-        .id = 0,
-        .outs = .empty,
-        .nullable = false,
-    };
+    const zero: Frag = .{ .id = 0, .outs = .empty, .nullable = false };
 };
 
 /// In the state list for execution, id 0 is reserved for .capture slot 0 state,
 /// so it's safe to repurpose it during building as dangling (i.e. to be patched).
 /// For `PatchList`, this means that `Ptr` with StateId = 0 indicates dangling.
 ///
-/// All `Id` value referenced by PatchList are encoded into Ptr.
+/// PatchList stores pending patch targets as encoded values in the fields they
+/// patch. Targets can be state fields or sparse transition `out` fields. Encoded
+/// pointer 0 is the dangling/end sentinel; transition payload 0 remains valid
+/// because target bits distinguish it from `Ptr.zero`.
 ///
 /// Reference: https://github.com/golang/go/blob/master/src/regexp/syntax/compile.go
 const PatchList = struct {
@@ -788,25 +543,41 @@ const PatchList = struct {
 
     const empty: PatchList = .{ .head = .zero, .tail = .zero };
 
-    fn fromOne(id: StateId) PatchList {
-        assert(id <= Ptr.max);
-        const ptr: Ptr = .{ .id = @truncate(id), .field = .left };
+    fn fromStateOut(id: StateId) PatchList {
+        return fromPtr(.init(id, .state_out));
+    }
+
+    fn fromAlt2Left(id: StateId) PatchList {
+        return fromPtr(.init(id, .alt2_left));
+    }
+
+    fn fromAlt2Right(id: StateId) PatchList {
+        return fromPtr(.init(id, .alt2_right));
+    }
+
+    fn fromTransitionOuts(c: *Compiler, start: usize, len: usize) PatchList {
+        if (len == 0) return .empty;
+
+        const head: Ptr = .init(start, .transition_out);
+        var tail = head;
+        for (start + 1..start + len) |i| {
+            const next: Ptr = .init(i, .transition_out);
+            tail.set(c, next.toId());
+            tail = next;
+        }
+        return .{ .head = head, .tail = tail };
+    }
+
+    fn fromPtr(ptr: Ptr) PatchList {
         return .{ .head = ptr, .tail = ptr };
     }
 
-    /// Like `fromOne`, but encode the patch target to .right.
-    fn fromOneRight(id: StateId) PatchList {
-        assert(id <= Ptr.max);
-        const ptr: Ptr = .{ .id = @truncate(id), .field = .right };
-        return .{ .head = ptr, .tail = ptr };
-    }
-
-    /// Decode the head value for the index of State (and which field) to patch.
-    /// If the decoded value is 0 (dangling), then patching is finished.
+    /// Walks the encoded Ptr linked list and patches each target to `value`.
+    /// Encoded pointer 0 marks the end of the list.
     fn patch(l1: PatchList, c: *Compiler, value: StateId) void {
         assert(value != 0);
         var head = l1.head;
-        while (head.toId() != 0) {
+        while (!head.isZero()) {
             const next = head.get(c);
             head.set(c, value);
             head = next;
@@ -814,42 +585,70 @@ const PatchList = struct {
     }
 
     fn append(l1: PatchList, c: *Compiler, l2: PatchList) PatchList {
-        if (l1.head.toId() == 0) return l2;
-        if (l2.head.toId() == 0) return l1;
+        if (l1.head.isZero()) return l2;
+        if (l2.head.isZero()) return l1;
         l1.tail.set(c, l2.head.toId());
         return .{ .head = l1.head, .tail = l2.tail };
     }
 
     const Ptr = packed struct {
-        id: u31,
-        field: Field,
+        payload: u30,
+        target: Target,
 
-        const zero: Ptr = .{ .id = 0, .field = .left };
-        const max = std.math.maxInt(u31);
+        const zero: Ptr = .{ .payload = 0, .target = .state_out };
+        const max = std.math.maxInt(u30);
 
-        /// Indicates which 'out' field to patched in State.
-        /// The field bit is ignored unless the State is alt2.
-        const Field = enum(u1) { left = 0, right = 1 };
+        // Implementation note: Ptr currently has two target bits, so keeping
+        // both `alt2_left` and `alt2_right` costs nothing. If another target
+        // kind is needed later, `alt2_left` can be merged into `state_out`,
+        // with `.alt2` treating its default state-out field as `.left`.
+        const Target = enum(u2) {
+            /// Patch a normal state's `out` field.
+            state_out = 0,
+            /// Patch an `alt2` state's `left` field.
+            alt2_left = 1,
+            /// Patch an `alt2` state's `right` field.
+            alt2_right = 2,
+            /// Patch a `Transition.out` field in Compiler.transitions.
+            transition_out = 3,
+        };
+
+        fn init(payload: usize, target: Target) Ptr {
+            assert(payload <= max);
+            assert(if (target != .transition_out) payload != 0 else true);
+            return .{ .payload = @intCast(payload), .target = target };
+        }
 
         fn toId(self: Ptr) StateId {
-            return (@as(StateId, self.id) << 1) | @intFromEnum(self.field);
+            return (@as(StateId, self.payload) << 2) | @intFromEnum(self.target);
         }
 
         fn fromId(id: StateId) Ptr {
-            return .{ .id = @truncate(id >> 1), .field = @enumFromInt(id & 1) };
+            return .{ .payload = @truncate(id >> 2), .target = @enumFromInt(id & 0b11) };
         }
 
-        /// Sets the field of State encoded by Ptr to `value`.
-        /// The field set is usually .out, except for when State is alt2,
-        /// in which case Ptr.field determines alt2.left or .right.
+        fn isZero(self: Ptr) bool {
+            return self.toId() == 0;
+        }
+
+        /// Sets the field encoded by Ptr to `value`.
         fn set(self: Ptr, c: *Compiler, value: StateId) void {
-            switch (c.states.items[self.id]) {
-                .fail, .match, .alt => unreachable,
-                .alt2 => |*pl| switch (self.field) {
-                    .left => pl.left = value,
-                    .right => pl.right = value,
+            switch (self.target) {
+                .state_out => switch (c.states.items[self.payload]) {
+                    .fail, .match, .alt, .alt2, .sparse => unreachable,
+                    inline else => |*pl| pl.out = value,
                 },
-                inline else => |*pl| pl.out = value,
+                .alt2_left => switch (c.states.items[self.payload]) {
+                    .alt2 => |*pl| pl.left = value,
+                    else => unreachable,
+                },
+                .alt2_right => switch (c.states.items[self.payload]) {
+                    .alt2 => |*pl| pl.right = value,
+                    else => unreachable,
+                },
+                .transition_out => {
+                    c.transitions.items[self.payload].out = value;
+                },
             }
         }
 
@@ -857,26 +656,35 @@ const PatchList = struct {
         /// encoded and is turned into a new Ptr and returned.
         fn get(self: Ptr, c: *Compiler) Ptr {
             return .fromId(
-                switch (c.states.items[self.id]) {
-                    .fail, .match, .alt => unreachable,
-                    .alt2 => |pl| switch (self.field) {
-                        .left => pl.left,
-                        .right => pl.right,
+                switch (self.target) {
+                    .state_out => switch (c.states.items[self.payload]) {
+                        .fail, .match, .alt, .alt2, .sparse => unreachable,
+                        inline else => |pl| pl.out,
                     },
-                    inline else => |pl| pl.out,
+                    .alt2_left => switch (c.states.items[self.payload]) {
+                        .alt2 => |pl| pl.left,
+                        else => unreachable,
+                    },
+                    .alt2_right => switch (c.states.items[self.payload]) {
+                        .alt2 => |pl| pl.right,
+                        else => unreachable,
+                    },
+                    .transition_out => c.transitions.items[self.payload].out,
                 },
             );
         }
     };
 };
 
-const testing = std.testing;
-
 fn expectProgram(pattern: []const u8, expected: []const Vertex) !void {
     return expectProgramWithOptions(pattern, expected, .{});
 }
 
-fn expectProgramWithOptions(pattern: []const u8, expected: []const Vertex, opts: TopLevelOptions) !void {
+fn expectProgramWithOptions(
+    pattern: []const u8,
+    expected: []const Vertex,
+    opts: TopLevelOptions,
+) !void {
     const a = testing.allocator;
     const prog = try Compiler.compile(a, pattern, opts);
     defer prog.deinit();
@@ -892,7 +700,17 @@ fn expectProgramWithOptions(pattern: []const u8, expected: []const Vertex, opts:
         const got_dump = try g.dumpGraphAlloc(a, actual);
         defer a.free(got_dump);
         std.debug.print(
-            "graph mismatch for `{s}` at s{d}\nwant: {any}\ngot:  {any}\n\nwant graph:\n{s}\n\ngot graph:\n{s}\n",
+            \\graph mismatch for `{s}` at s{d}
+            \\want: {any}
+            \\got:  {any}
+            \\
+            \\want graph:
+            \\{s}
+            \\
+            \\got graph:
+            \\{s}
+            \\
+        ,
             .{ pattern, i, want, got, want_dump, got_dump },
         );
         return error.TestExpectedEqual;
@@ -902,23 +720,23 @@ fn expectProgramWithOptions(pattern: []const u8, expected: []const Vertex, opts:
 test "basic compile" {
     try expectProgram("a((b|c)|\\d|)(x|y)z", &.{
         g.capt(0, 1),
-        g.char('a', 2),
+        g.range('a', 'a', 2),
         g.capt(2, 3),
         g.alt(&.{ 4, 5, 6 }),
         g.capt(4, 7),
-        g.ranges(&.{g.r('0', '9')}, false, 11),
+        g.range('0', '9', 11),
         g.empty(11),
         g.alt2(8, 9),
-        g.char('b', 10),
-        g.char('c', 10),
+        g.range('b', 'b', 10),
+        g.range('c', 'c', 10),
         g.capt(5, 11),
         g.capt(3, 12),
         g.capt(6, 13),
         g.alt2(14, 15),
-        g.char('x', 16),
-        g.char('y', 16),
+        g.range('x', 'x', 16),
+        g.range('y', 'y', 16),
         g.capt(7, 17),
-        g.char('z', 18),
+        g.range('z', 'z', 18),
         g.capt(1, 19),
         g.match(),
     });
@@ -928,9 +746,9 @@ test "non-capturing group" {
     // does not emit capture states
     try expectProgram("(?:a)(b)", &.{
         g.capt(0, 1),
-        g.char('a', 2),
+        g.range('a', 'a', 2),
         g.capt(2, 3),
-        g.char('b', 4),
+        g.range('b', 'b', 4),
         g.capt(3, 5),
         g.capt(1, 6),
         g.match(),
@@ -941,10 +759,10 @@ test "named capturing group" {
     try expectProgram("(?<first>a)(?P<last>b)", &.{
         g.capt(0, 1),
         g.capt(2, 2),
-        g.char('a', 3),
+        g.range('a', 'a', 3),
         g.capt(3, 4),
         g.capt(4, 5),
-        g.char('b', 6),
+        g.range('b', 'b', 6),
         g.capt(5, 7),
         g.capt(1, 8),
         g.match(),
@@ -955,20 +773,20 @@ test "greedy repetition" {
     try expectProgram("a?", &.{
         g.capt(0, 1),
         g.alt2(2, 3),
-        g.char('a', 3),
+        g.range('a', 'a', 3),
         g.capt(1, 4),
         g.match(),
     });
     try expectProgram("a*", &.{
         g.capt(0, 1),
         g.alt2(2, 3),
-        g.char('a', 1),
+        g.range('a', 'a', 1),
         g.capt(1, 4),
         g.match(),
     });
     try expectProgram("a+", &.{
         g.capt(0, 1),
-        g.char('a', 2),
+        g.range('a', 'a', 2),
         g.alt2(1, 3),
         g.capt(1, 4),
         g.match(),
@@ -980,19 +798,19 @@ test "lazy repetition" {
         g.capt(0, 1),
         g.alt2(2, 3),
         g.capt(1, 4),
-        g.char('a', 2),
+        g.range('a', 'a', 2),
         g.match(),
     });
     try expectProgram("a*?", &.{
         g.capt(0, 1),
         g.alt2(2, 3),
         g.capt(1, 4),
-        g.char('a', 1),
+        g.range('a', 'a', 1),
         g.match(),
     });
     try expectProgram("a+?", &.{
         g.capt(0, 1),
-        g.char('a', 2),
+        g.range('a', 'a', 2),
         g.alt2(3, 1),
         g.capt(1, 4),
         g.match(),
@@ -1004,14 +822,14 @@ test "swap greed option" {
         g.capt(0, 1),
         g.alt2(2, 3),
         g.capt(1, 4),
-        g.char('a', 1),
+        g.range('a', 'a', 1),
         g.match(),
     }, .{ .syntax = .{ .swap_greed = true } });
 
     try expectProgramWithOptions("a*?", &.{
         g.capt(0, 1),
         g.alt2(2, 3),
-        g.char('a', 1),
+        g.range('a', 'a', 1),
         g.capt(1, 4),
         g.match(),
     }, .{ .syntax = .{ .swap_greed = true } });
@@ -1035,21 +853,21 @@ test "dot compile" {
 test "case insensitive compile" {
     try expectProgramWithOptions("a", &.{
         g.capt(0, 1),
-        g.ranges(&.{ g.r('A', 'A'), g.r('a', 'a') }, false, 2),
+        g.sparse(&.{ g.t('A', 'A', 2), g.t('a', 'a', 2) }),
         g.capt(1, 3),
         g.match(),
     }, .{ .syntax = .{ .case_insensitive = true } });
 
     try expectProgramWithOptions("1", &.{
         g.capt(0, 1),
-        g.char('1', 2),
+        g.range('1', '1', 2),
         g.capt(1, 3),
         g.match(),
     }, .{ .syntax = .{ .case_insensitive = true } });
 
     try expectProgramWithOptions("[A-Z]", &.{
         g.capt(0, 1),
-        g.ranges(&.{ g.r('A', 'Z'), g.r('a', 'z') }, false, 2),
+        g.sparse(&.{ g.t('A', 'Z', 2), g.t('a', 'z', 2) }),
         g.capt(1, 3),
         g.match(),
     }, .{ .syntax = .{ .case_insensitive = true } });
@@ -1057,7 +875,7 @@ test "case insensitive compile" {
     try expectProgramWithOptions("\\A[[:^lower:]]+\\z", &.{
         g.capt(0, 1),
         g.asrt(.start_text, 2),
-        g.ranges(&.{ g.r(0x00, '@'), g.r('[', '`'), g.r('{', 0xFF) }, false, 3),
+        g.sparse(&.{ g.t(0x00, '@', 3), g.t('[', '`', 3), g.t('{', 0xFF, 3) }),
         g.alt2(2, 4),
         g.asrt(.end_text, 5),
         g.capt(1, 6),
@@ -1068,62 +886,62 @@ test "case insensitive compile" {
 test "counted repetition" {
     try expectProgram("a{3}", &.{
         g.capt(0, 1),
-        g.char('a', 2),
-        g.char('a', 3),
-        g.char('a', 4),
+        g.range('a', 'a', 2),
+        g.range('a', 'a', 3),
+        g.range('a', 'a', 4),
         g.capt(1, 5),
         g.match(),
     });
     try expectProgram("a{2,}", &.{
         g.capt(0, 1),
-        g.char('a', 2),
-        g.char('a', 3),
+        g.range('a', 'a', 2),
+        g.range('a', 'a', 3),
         g.alt2(2, 4),
         g.capt(1, 5),
         g.match(),
     });
     try expectProgram("a{2,}?", &.{
         g.capt(0, 1),
-        g.char('a', 2),
-        g.char('a', 3),
+        g.range('a', 'a', 2),
+        g.range('a', 'a', 3),
         g.alt2(4, 2),
         g.capt(1, 5),
         g.match(),
     });
     try expectProgram("a{2,4}", &.{
         g.capt(0, 1),
-        g.char('a', 2),
-        g.char('a', 3),
+        g.range('a', 'a', 2),
+        g.range('a', 'a', 3),
         g.alt2(4, 5),
-        g.char('a', 6),
+        g.range('a', 'a', 6),
         g.capt(1, 8),
         g.alt2(7, 5),
-        g.char('a', 5),
+        g.range('a', 'a', 5),
         g.match(),
     });
     try expectProgram("a{2,4}?", &.{
         g.capt(0, 1),
-        g.char('a', 2),
-        g.char('a', 3),
+        g.range('a', 'a', 2),
+        g.range('a', 'a', 3),
         g.alt2(4, 5),
         g.capt(1, 6),
-        g.char('a', 7),
+        g.range('a', 'a', 7),
         g.match(),
         g.alt2(4, 8),
-        g.char('a', 4),
+        g.range('a', 'a', 4),
     });
 }
 
 test "ascii class compile" {
     try expectProgram("[^[:digit:]]", &.{
         g.capt(0, 1),
-        g.ranges(&.{ g.r(0x00, '/'), g.r(':', 0xFF) }, false, 2),
+        g.sparse(&.{ g.t(0x00, '/', 2), g.t(':', 0xFF, 2) }),
         g.capt(1, 3),
         g.match(),
     });
     try expectProgram("[[:digit:][:^digit:]]", &.{
         g.capt(0, 1),
-        g.ranges(&.{g.r(0x00, 0xFF)}, false, 2),
+        g.range(0x00, 0xFF, 2),
         g.capt(1, 3),
         g.match(),
     });
@@ -1137,8 +955,8 @@ test "assertions" {
     try expectProgram("^re$", &.{
         g.capt(0, 1),
         g.asrt(.start_text, 2),
-        g.char('r', 3),
-        g.char('e', 4),
+        g.range('r', 'r', 3),
+        g.range('e', 'e', 4),
         g.asrt(.end_text, 5),
         g.capt(1, 6),
         g.match(),
@@ -1146,8 +964,8 @@ test "assertions" {
     try expectProgram("\\Are\\z", &.{
         g.capt(0, 1),
         g.asrt(.start_text, 2),
-        g.char('r', 3),
-        g.char('e', 4),
+        g.range('r', 'r', 3),
+        g.range('e', 'e', 4),
         g.asrt(.end_text, 5),
         g.capt(1, 6),
         g.match(),
@@ -1162,8 +980,8 @@ test "assertions" {
     try expectProgramWithOptions("^re$", &.{
         g.capt(0, 1),
         g.asrt(.start_line, 2),
-        g.char('r', 3),
-        g.char('e', 4),
+        g.range('r', 'r', 3),
+        g.range('e', 'e', 4),
         g.asrt(.end_line, 5),
         g.capt(1, 6),
         g.match(),
@@ -1195,17 +1013,22 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
+const testing = std.testing;
 const builtin = @import("builtin");
 
 pub const Ast = @import("Ast.zig");
+const named_class = @import("Compiler/named_class.zig");
+const range_set = @import("Compiler/range_set.zig");
+const ByteRange = range_set.ByteRange;
+const ByteRangeSet = range_set.ByteRangeSet;
 const errors = @import("errors.zig");
 const Diagnostics = errors.Diagnostics;
-const TopLevelOptions = @import("types.zig").CompileOptions;
-const SyntaxOptions = TopLevelOptions.Syntax;
+const g = @import("program_graph.zig");
+const Vertex = g.Vertex;
 pub const Parser = @import("Parser.zig");
 const Program = @import("Program.zig");
-const g = @import("program_graph.zig");
 const State = Program.State;
 const StateId = Program.StateId;
-const ByteRange = Program.ByteRange;
-const Vertex = g.Vertex;
+const Transition = State.Transition;
+const TopLevelOptions = @import("types.zig").CompileOptions;
+const SyntaxFlags = TopLevelOptions.Syntax;

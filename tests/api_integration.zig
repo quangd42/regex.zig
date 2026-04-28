@@ -363,6 +363,11 @@ test "ignore case option" {
         try expect(re.match("AB"));
     }
     {
+        var re = try Regex.compile(gpa, "\\A[0-Z]\\z", .{ .syntax = .{ .case_insensitive = true } });
+        defer re.deinit();
+        try expect(re.match("a"));
+    }
+    {
         var re = try Regex.compile(gpa, "\\A[[:^lower:]]+\\z", .{});
         defer re.deinit();
         try expect(re.match("AZ"));

@@ -176,7 +176,7 @@ fn explore(
         // Within a single epsilon closure, only explore the first visit to a state.
         if (!vm.visited_epsilons.add(id)) return;
         switch (vm.prog.states[id]) {
-            .char, .ranges, .any, .match, .fail => {
+            .byte_range, .sparse, .any, .match, .fail => {
                 vm.next_states.add(mode, id, slots);
                 break;
             },
@@ -229,16 +229,14 @@ fn step(vm: *Vm, comptime mode: SearchMode, target: u8, at: Offset, input: Input
     for (vm.current_states.slice()) |id| {
         const slots = vm.current_states.slotsFor(mode, id);
         switch (vm.prog.states[id]) {
-            .char => |s| if (target == s.byte) {
+            .byte_range => |s| if (s.contains(target)) {
                 vm.epsilonClosure(mode, s.out, at + 1, input, slots);
             },
-            .ranges => |s| {
-                const ranges = vm.prog.ranges[s.start..][0..s.len];
-                const in_range = for (ranges) |range| {
-                    if (range.contains(target)) break true;
-                } else false;
-                // !s.negated and in_range or s.negated and !in_range
-                if (in_range != s.negated) vm.epsilonClosure(mode, s.out, at + 1, input, slots);
+            .sparse => |s| {
+                const ranges = vm.prog.transitions[s.start..][0..s.len];
+                for (ranges) |r| {
+                    if (r.contains(target)) vm.epsilonClosure(mode, r.out, at + 1, input, slots);
+                }
             },
             .any => |s| switch (s.kind) {
                 .all => vm.epsilonClosure(mode, s.out, at + 1, input, slots),

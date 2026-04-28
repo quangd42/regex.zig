@@ -7,8 +7,8 @@ const Program = @This();
 
 /// Contains all states of the NFA graph.
 states: []const State,
-/// See State.ranges.
-ranges: []const ByteRange,
+/// See State.sparse.
+transitions: []const State.Transition,
 /// See State.alt.
 branches: []const State.Id,
 arena: std.heap.ArenaAllocator,
@@ -27,7 +27,10 @@ pub fn literalPrefix(p: *const Program) ?u8 {
     var id: usize = 0;
     while (true) {
         switch (p.states[id]) {
-            .char => |s| return s.byte,
+            .byte_range => |s| {
+                if (s.from != s.to) return null;
+                return s.from;
+            },
             .capture => |s| id = s.out,
             .empty => |s| id = s.out,
             else => return null,
@@ -35,10 +38,10 @@ pub fn literalPrefix(p: *const Program) ?u8 {
     }
 }
 
-/// Index type for metadata arrays (such as Program.ranges or .branches).
+/// Index type for metadata arrays (such as Program.transitions or .branches).
 /// Typically Index and Length are used together as a `slice` into metadata arrays.
 pub const Index = u32;
-/// Length type for metadata arrays (such as Program.ranges or .branches).
+/// Length type for metadata arrays (such as Program.transitions or .branches).
 /// Typically Index and Length are used together as a `slice` into metadata arrays.
 pub const Length = u16;
 
@@ -48,28 +51,14 @@ pub const Length = u16;
 /// can be used instead.
 pub const Offset = u31;
 
-/// ByteRange is inclusive on both ends.
-pub const ByteRange = struct {
-    from: u8,
-    to: u8,
-
-    pub fn contains(self: ByteRange, byte: u8) bool {
-        return self.from <= byte and byte <= self.to;
-    }
-};
-
 pub const StateId = State.Id;
 
 pub const State = union(enum) {
-    /// Contains a single byte, which must equal the current input to transition to the next state.
-    char: struct { byte: u8, out: Id },
+    /// Consumes a single byte in the inclusive `from..to` and transitions to `out`.
+    byte_range: Transition,
 
-    /// Points to a list of ByteRange, one of which the current input must belong to in
-    /// order to transition to the next state.
-    ///
-    /// Instead of scattering these lists in memory, they're stored together in Program.ranges array.
-    /// This state then stores the slice into the common array.
-    ranges: struct { start: Index, len: Length, negated: bool, out: Id },
+    /// Consumes a single byte via one of Program.transitions[start..][0..len].
+    sparse: struct { start: Index, len: Length },
 
     /// Consumes any input character and conditionally transitions to the next state
     /// based on `kind`.
@@ -106,6 +95,17 @@ pub const State = union(enum) {
     /// Index into Program.states
     pub const Id = u32;
 
+    /// The byte range in Transition is inclusive on both ends.
+    pub const Transition = struct {
+        from: u8,
+        to: u8,
+        out: Id,
+
+        pub fn contains(self: Transition, byte: u8) bool {
+            return self.from <= byte and byte <= self.to;
+        }
+    };
+
     pub const Any = struct {
         kind: Kind,
         out: Id,
@@ -135,22 +135,27 @@ pub fn dump(prog: Program, w: *std.Io.Writer) !void {
     try w.writeAll("States\n");
     for (prog.states, 0..) |state, i| {
         switch (state) {
-            .char => |pl| try w.print(
-                "{d:>3} {s:<8} byte={c}  out={d:<3}\n",
-                .{ i, @tagName(state), pl.byte, pl.out },
+            .byte_range => |pl| try w.print(
+                "{d:>3} {s:<11} from='0x{x}'  to='0x{x}'    out={d:<3}\n",
+                .{ i, @tagName(state), pl.from, pl.to, pl.out },
             ),
-            .ranges => |pl| {
+            .sparse => |pl| {
                 try w.print(
-                    "{d:>3} {s:<8}         out={d:<3}  start={d:<3} len={d:<3}\n",
-                    .{ i, @tagName(state), pl.out, pl.start, pl.len },
+                    "{d:>3} {s:<11} start={d:<3}    len={d:<3}",
+                    .{ i, @tagName(state), pl.start, pl.len },
                 );
+                try w.writeAll("               ");
+                for (prog.transitions[pl.start..][0..pl.len]) |t| {
+                    try w.print("['0x{x}'..'0x{x}']->{d:<3}   ", .{ t.from, t.to, t.out });
+                }
+                try w.writeAll("\n");
             },
-            .any => |pl| try w.print("{d:>3} {s:<8}         out={d:<3}  kind={s}\n", .{ i, @tagName(state), pl.out, @tagName(pl.kind) }),
-            .empty => |pl| try w.print("{d:>3} {s:<8}         out={d:<3}\n", .{ i, @tagName(state), pl.out }),
-            .assert => |pl| try w.print("{d:>3} {s:<8}         out={d:<3}  pred={s}\n", .{ i, @tagName(state), pl.out, @tagName(pl.pred) }),
+            .any => |pl| try w.print("{d:>3} {s:<11}                           out={d:<3}  kind={s}\n", .{ i, @tagName(state), pl.out, @tagName(pl.kind) }),
+            .empty => |pl| try w.print("{d:>3} {s:<11}                           out={d:<3}\n", .{ i, @tagName(state), pl.out }),
+            .assert => |pl| try w.print("{d:>3} {s:<11}                           out={d:<3}  pred={s}\n", .{ i, @tagName(state), pl.out, @tagName(pl.pred) }),
             .alt => |pl| {
                 try w.print(
-                    "{d:>3} {s:<8}                  start={d:<3} len={d:<3}",
+                    "{d:>3} {s:<11}                  start={d:<3}    len={d:<3}",
                     .{ i, @tagName(state), pl.start, pl.len },
                 );
                 try w.writeAll("  [ ");
@@ -161,23 +166,18 @@ pub fn dump(prog: Program, w: *std.Io.Writer) !void {
             },
             .alt2 => |pl| {
                 try w.print(
-                    "{d:>3} {s:<8}         left={d:<3} right={d:<3}\n",
+                    "{d:>3} {s:<11} left={d:<3}     right={d:<3}\n",
                     .{ i, @tagName(state), pl.left, pl.right },
                 );
             },
             .capture => |pl| try w.print(
-                "{d:>3} {s:<8} slot={d}  out={d:<3}\n",
+                "{d:>3} {s:<11} slot={d:<3}                  out={d:<3}\n",
                 .{ i, @tagName(state), pl.slot, pl.out },
             ),
-            .match => try w.print("{d:>3} {s:<8}\n", .{ i, @tagName(state) }),
-            .fail => try w.print("{d:>3} {s:<8}\n", .{ i, @tagName(state) }),
+            .match => try w.print("{d:>3} {s:<11}\n", .{ i, @tagName(state) }),
+            .fail => try w.print("{d:>3} {s:<11}\n", .{ i, @tagName(state) }),
         }
     }
-
-    // std.debug.print("\nRanges:\n", .{});
-    // for (prog.ranges, 0..) |range, i| {
-    //     std.debug.print("{d:>3} {{ from = {c}, to = {c} }}\n", .{ i, range.from, range.to });
-    // }
 }
 
 const std = @import("std");

@@ -8,7 +8,7 @@ const Program = @import("Program.zig");
 
 pub const Id = Program.StateId;
 pub const Index = Program.Index;
-pub const ByteRange = Program.ByteRange;
+pub const Transition = Program.State.Transition;
 pub const Predicate = Program.State.Assertion.Predicate;
 pub const AnyKind = Program.State.Any.Kind;
 
@@ -18,8 +18,8 @@ pub const AnyKind = Program.State.Any.Kind;
 /// produced by `graphView` (dense labels starting at state 0). This keeps
 /// test snapshots stable and independent from raw compiler state ids.
 pub const Vertex = union(enum) {
-    char: struct { byte: u8, out: Id },
-    ranges: struct { items: []const ByteRange, negated: bool, out: Id },
+    byte_range: struct { from: u8, to: u8, out: Id },
+    sparse: struct { items: []const Transition },
     any: struct { kind: AnyKind, out: Id },
     empty: struct { out: Id },
     assert: struct { pred: Predicate, out: Id },
@@ -31,12 +31,13 @@ pub const Vertex = union(enum) {
 
     pub fn eql(self: Vertex, other: Vertex) bool {
         return switch (self) {
-            .ranges => |w| {
-                if (std.meta.activeTag(other) != .ranges) return false;
-                const g = other.ranges;
-                return w.negated == g.negated and
-                    w.out == g.out and
-                    eqlByteRanges(w.items, g.items);
+            .sparse => |s| {
+                if (std.meta.activeTag(other) != .sparse) return false;
+                if (s.items.len != other.sparse.items.len) return false;
+                for (s.items, other.sparse.items) |w, g| {
+                    if (w.from != g.from or w.to != g.to or w.out != g.out) return false;
+                }
+                return true;
             },
             .alt => |w| {
                 if (std.meta.activeTag(other) != .alt) return false;
@@ -52,7 +53,7 @@ pub const Vertex = union(enum) {
 
 /// Owned canonical graph view rooted at program state 0.
 ///
-/// `graphView` duplicates variable-size payloads (`ranges`, `branches`),
+/// `graphView` duplicates variable-size payloads (`sparse`, `branches`),
 /// so callers must release this view with `deinit`.
 pub const GraphView = struct {
     vertices: []Vertex,
@@ -60,7 +61,7 @@ pub const GraphView = struct {
     pub fn deinit(view: GraphView, gpa: Allocator) void {
         for (view.vertices) |v| {
             switch (v) {
-                .ranges => |pl| gpa.free(pl.items),
+                .sparse => |pl| gpa.free(pl.items),
                 .alt => |pl| gpa.free(pl.branches),
                 else => {},
             }
@@ -69,16 +70,16 @@ pub const GraphView = struct {
     }
 };
 
-pub fn char(byte: u8, out: Id) Vertex {
-    return .{ .char = .{ .byte = byte, .out = out } };
+pub fn range(from: u8, to: u8, out: Id) Vertex {
+    return .{ .byte_range = .{ .from = from, .to = to, .out = out } };
 }
 
-pub fn ranges(items: []const ByteRange, negated: bool, out: Id) Vertex {
-    return .{ .ranges = .{ .items = items, .negated = negated, .out = out } };
+pub fn sparse(items: []const Transition) Vertex {
+    return .{ .sparse = .{ .items = items } };
 }
 
-pub fn r(from: u8, to: u8) ByteRange {
-    return .{ .from = from, .to = to };
+pub fn t(from: u8, to: u8, out: Id) Transition {
+    return .{ .from = from, .to = to, .out = out };
 }
 
 pub fn any(kind: AnyKind, out: Id) Vertex {
@@ -119,23 +120,16 @@ pub fn dumpGraph(w: *std.Io.Writer, vertices: []const Vertex) !void {
         if (id > 0) try w.writeByte('\n');
         try w.print("s{d}: ", .{id});
         switch (state) {
-            .char => |s| {
-                try w.writeAll("byte(");
-                try writeByteFmt(w, s.byte);
-                try w.print(") -> s{d}", .{s.out});
+            .byte_range => |s| {
+                try w.print("range({c}..{c}) -> s{d}", .{ s.from, s.to, s.out });
             },
-            .ranges => |s| {
-                if (s.negated) try w.writeByte('!');
-                try w.writeAll("ranges(");
-                for (s.items, 0..) |range, r_idx| {
+            .sparse => |s| {
+                try w.writeAll("sparse(");
+                for (s.items, 0..) |tran, r_idx| {
                     if (r_idx > 0) try w.writeAll(", ");
-                    try writeByteFmt(w, range.from);
-                    if (range.from != range.to) {
-                        try w.writeAll("-");
-                        try writeByteFmt(w, range.to);
-                    }
+                    try w.print("range({c}..{c}) -> s{d}", .{ tran.from, tran.to, tran.out });
                 }
-                try w.print(") -> s{d}", .{s.out});
+                try w.writeAll(")");
             },
             .any => |s| try w.print("any({s}) -> s{d}", .{ @tagName(s.kind), s.out }),
             .empty => |s| try w.print("empty -> s{d}", .{s.out}),
@@ -187,7 +181,7 @@ pub fn graphView(prog: *const Program, gpa: Allocator) !GraphView {
     errdefer {
         for (vertices.items) |v| {
             switch (v) {
-                .ranges => |pl| gpa.free(pl.items),
+                .sparse => |pl| gpa.free(pl.items),
                 .alt => |pl| gpa.free(pl.branches),
                 else => {},
             }
@@ -213,27 +207,39 @@ pub fn graphView(prog: *const Program, gpa: Allocator) !GraphView {
 
             var next_id: ?Id = null;
             vertices.items[label] = vertex: switch (prog.states[id]) {
-                .char => |s| {
+                .byte_range => |s| {
                     const out = getOrAssignLabel(labels, &next_label, s.out);
                     if (out.is_new) {
                         next_id = s.out;
                     }
-                    break :vertex .{ .char = .{ .byte = s.byte, .out = out.label } };
-                },
-                .ranges => |s| {
-                    const out = getOrAssignLabel(labels, &next_label, s.out);
-                    if (out.is_new) {
-                        next_id = s.out;
-                    }
-                    const copied_ranges = try gpa.dupe(
-                        ByteRange,
-                        prog.ranges[s.start..][0..s.len],
-                    );
-                    break :vertex .{ .ranges = .{
-                        .items = copied_ranges,
-                        .negated = s.negated,
+                    break :vertex .{ .byte_range = .{
+                        .from = s.from,
+                        .to = s.to,
                         .out = out.label,
                     } };
+                },
+                .sparse => |s| {
+                    const src = prog.transitions[s.start..][0..s.len];
+                    const items = try gpa.alloc(Transition, src.len);
+                    const pushed_start = stack_top;
+                    for (src, items) |tran, *item| {
+                        const out = getOrAssignLabel(labels, &next_label, tran.out);
+                        item.* = .{
+                            .from = tran.from,
+                            .to = tran.to,
+                            .out = out.label,
+                        };
+                        if (!out.is_new) continue;
+                        if (next_id == null) {
+                            next_id = tran.out;
+                        } else {
+                            std.debug.assert(stack_top < stack.len);
+                            stack[stack_top] = tran.out;
+                            stack_top += 1;
+                        }
+                    }
+                    std.mem.reverse(Id, stack[pushed_start..stack_top]);
+                    break :vertex .{ .sparse = .{ .items = items } };
                 },
                 .any => |s| {
                     const out = getOrAssignLabel(labels, &next_label, s.out);
@@ -317,14 +323,6 @@ pub fn graphView(prog: *const Program, gpa: Allocator) !GraphView {
     return .{ .vertices = try vertices.toOwnedSlice(gpa) };
 }
 
-fn eqlByteRanges(lhs: []const ByteRange, rhs: []const ByteRange) bool {
-    if (lhs.len != rhs.len) return false;
-    for (lhs, rhs) |w, g| {
-        if (w.from != g.from or w.to != g.to) return false;
-    }
-    return true;
-}
-
 fn getOrAssignLabel(
     labels: []?Id,
     next: *Id,
@@ -335,8 +333,4 @@ fn getOrAssignLabel(
     next.* += 1;
     labels[id] = label;
     return .{ .label = label, .is_new = true };
-}
-
-fn writeByteFmt(w: *std.Io.Writer, byte: u8) !void {
-    try w.print("'{f}'", .{std.zig.fmtChar(byte)});
 }
