@@ -176,7 +176,7 @@ fn explore(
         // Within a single epsilon closure, only explore the first visit to a state.
         if (!vm.visited_epsilons.add(id)) return;
         switch (vm.prog.states[id]) {
-            .byte_range, .sparse, .any, .match, .fail => {
+            .byte_range, .sparse, .match, .fail => {
                 vm.next_states.add(mode, id, slots);
                 break;
             },
@@ -237,12 +237,6 @@ fn step(vm: *Vm, comptime mode: SearchMode, target: u8, at: Offset, input: Input
                 for (ranges) |r| {
                     if (r.contains(target)) vm.epsilonClosure(mode, r.out, at + 1, input, slots);
                 }
-            },
-            .any => |s| switch (s.kind) {
-                .all => vm.epsilonClosure(mode, s.out, at + 1, input, slots),
-                .not_lf => if (target != '\n') {
-                    vm.epsilonClosure(mode, s.out, at + 1, input, slots);
-                },
             },
             .empty, .capture, .assert, .alt, .alt2 => {
                 // current_states cannot hold these states because epsilon_closure()

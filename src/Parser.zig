@@ -84,7 +84,7 @@ pub fn parse(p: *Parser) Error!Ast {
             '.' => try p.concat.append(a, try p.addNode(.dot)),
             '^' => try p.concat.append(a, try p.addNode(.{ .assertion = .start_line_or_text })),
             '$' => try p.concat.append(a, try p.addNode(.{ .assertion = .end_line_or_text })),
-            else => try p.concat.append(a, try p.addNode(.{ .literal = .{ .verbatim = c } })),
+            else => try p.concat.append(a, try p.addNode(.{ .literal = try p.parseLiteral(c) })),
         }
     } else try p.popGroupAtEnd(concat);
 
@@ -338,7 +338,7 @@ fn parseFlags(p: *Parser) !Ast.Flags {
 
     while (p.peek()) |c| {
         switch (c) {
-            'i', 'm', 's', 'U', '-' => {
+            'i', 'm', 's', 'U', 'u', '-' => {
                 _ = p.eat();
                 const flag = parseFlag(c);
                 const i = @intFromEnum(flag);
@@ -368,6 +368,7 @@ fn parseFlag(c: u8) Ast.Flags.Item {
         'm' => .multi_line,
         's' => .dot_matches_new_line,
         'U' => .swap_greed,
+        'u' => .unicode,
         '-' => .disable_op,
         else => unreachable,
     };
@@ -435,7 +436,7 @@ fn parseDecimal(p: *Parser) !struct { value: u16, span: Span } {
 fn parseClassItem(p: *Parser, c: u8) !Class.Item {
     return switch (c) {
         '\\' => try p.parseEscapeInClass(),
-        else => .{ .literal = .{ .verbatim = c } },
+        else => .{ .literal = try p.parseLiteral(c) },
     };
 }
 
@@ -533,21 +534,46 @@ fn parseCStyleEscape(c: u8) Ast.Literal.CStyle {
 
 fn parseHex(p: *Parser) !Ast.Literal {
     assert(p.prev() == 'x');
-    const hex_span_start = p.offset - 1;
-    if (p.offset + 2 > p.pattern.len)
-        return p.errAt(.escape_invalid, .{ .start = hex_span_start, .end = p.pattern.len });
-    var byte: u8 = 0;
-    for (p.pattern[p.offset..][0..2]) |c| {
+    const c = p.peek() orelse return p.err(.escape_at_eof);
+    if (c == '{') {
+        _ = p.eat();
+        const end = std.mem.indexOfScalarPos(u8, p.pattern, p.offset, '}') orelse
+            return p.errCurrent(.escape_hex_brace_not_closed);
+        const value = try p.parseHexValue(end);
+        p.offset += 1; // consume '}'
+        return .{ .hex = .{ .x_brace = value } };
+    } else {
+        const end = p.offset + 2;
+        if (end > p.pattern.len)
+            return p.errAt(.escape_hex_value_invalid, .{ .start = p.offset, .end = p.pattern.len });
+        const value = try p.parseHexValue(end);
+        return .{ .hex = .{ .x = @intCast(value) } };
+    }
+}
+
+/// Parses hex digits from the current cursor up to `end_pos`.
+/// On success, the cursor is advanced to `end_pos`.
+fn parseHexValue(p: *Parser, end_pos: usize) !u21 {
+    const start = p.offset;
+    const length = end_pos - start;
+    if (length == 0 or length > 6) {
+        return p.errAt(.escape_hex_value_invalid, .{ .start = start, .end = end_pos });
+    }
+    var value: u21 = 0;
+    for (p.pattern[p.offset..end_pos]) |c| {
         p.offset += 1;
         const d = switch (c) {
             '0'...'9' => c - '0',
             'a'...'f' => c - 'a' + 10,
             'A'...'F' => c - 'A' + 10,
-            else => return p.errAt(.escape_invalid, p.spanFrom(hex_span_start)),
+            else => return p.err(.escape_hex_digit_invalid),
         };
-        byte = (byte << 4) | d;
+        value = (value << 4) | d;
     }
-    return .{ .hex = byte };
+    if (!std_unicode.utf8ValidCodepoint(value)) {
+        return p.errAt(.escape_hex_value_invalid, .{ .start = start, .end = end_pos });
+    }
+    return value;
 }
 
 fn parseEscapeLiteral(p: *Parser, c: u8) !?Ast.Literal {
@@ -582,6 +608,29 @@ fn parseClassPerl(c: u8) ?Class.Perl {
         'S' => .{ .kind = .space, .negated = true },
         else => null,
     };
+}
+
+fn parseLiteral(p: *Parser, first_byte: u8) !Ast.Literal {
+    const len = std_unicode.utf8ByteSequenceLength(first_byte) catch
+        return p.err(.utf8_codepoint_invalid);
+
+    if (len == 1) return .{ .verbatim = first_byte };
+
+    const start = p.offset - 1;
+    const end = start + len;
+    if (end > p.pattern.len) {
+        return p.errAt(.utf8_codepoint_invalid, .{ .start = start, .end = p.pattern.len });
+    }
+
+    const bytes = p.pattern[start..end];
+    const decoded = (switch (len) {
+        2 => std_unicode.utf8Decode2(bytes[0..2].*),
+        3 => std_unicode.utf8Decode3(bytes[0..3].*),
+        4 => std_unicode.utf8Decode4(bytes[0..4].*),
+        else => unreachable,
+    }) catch return p.errAt(.utf8_codepoint_invalid, .{ .start = start, .end = end });
+    p.offset = end;
+    return .{ .verbatim = decoded };
 }
 
 // --- errors ---
@@ -753,6 +802,7 @@ test "parse to string round trip" {
         "a(b|c|\\d)",
         "a(?:b|c)",
         "a(?iU-sm:b|c)",
+        "a(?iu:b|c)",
         "a(bc(?U-sm)de)",
         "(?P<name>a)",
         "(?<name>a)",
@@ -768,6 +818,8 @@ test "parse to string round trip" {
         "a[^\\]b]c",
         "\\\\\\.\\[\\]\\.\\+\\*\\?\\(\\)\\{\\}\\^\\$\\^\\&\\-\\~", // meta
         "\\x41\\x0a", // hex literal
+        "\\x{1f600}", // hex literal with brace
+        "aはb", // unicode literal
 
         // character class
         "a[]]b_&&_a[\\]]b",
@@ -881,16 +933,52 @@ test "parse errors" {
             .end = 2,
         },
         .{
-            .pattern = "\\x1",
-            .tag = .escape_invalid,
-            .start = 1,
+            .pattern = "\\xZZ",
+            .tag = .escape_hex_digit_invalid,
+            .start = 2,
             .end = 3,
         },
         .{
-            .pattern = "\\xZZ",
-            .tag = .escape_invalid,
-            .start = 1,
+            .pattern = "\\x1",
+            .tag = .escape_hex_value_invalid,
+            .start = 2,
             .end = 3,
+        },
+        .{
+            .pattern = "\\x{1Z}",
+            .tag = .escape_hex_digit_invalid,
+            .start = 4,
+            .end = 5,
+        },
+        .{
+            .pattern = "\\x{}",
+            .tag = .escape_hex_value_invalid,
+            .start = 3,
+            .end = 3,
+        },
+        .{
+            .pattern = "\\x{FFFFFFF}",
+            .tag = .escape_hex_value_invalid,
+            .start = 3,
+            .end = 10,
+        },
+        .{
+            .pattern = "\\x{110000}",
+            .tag = .escape_hex_value_invalid,
+            .start = 3,
+            .end = 9,
+        },
+        .{
+            .pattern = "\\x{D800}",
+            .tag = .escape_hex_value_invalid,
+            .start = 3,
+            .end = 7,
+        },
+        .{
+            .pattern = "\\x{1",
+            .tag = .escape_hex_brace_not_closed,
+            .start = 3,
+            .end = 4,
         },
         .{
             .pattern = "[",
@@ -1076,6 +1164,39 @@ test "parse errors" {
     }
 }
 
+test "parse errors for invalid utf8 literals" {
+    const gpa = testing.allocator;
+
+    const test_cases = &[_]struct {
+        pattern: []const u8,
+        start: usize,
+        end: usize,
+    }{
+        .{
+            .pattern = &[_]u8{ 0xE2, '(', 0xA1 },
+            .start = 0,
+            .end = 3,
+        },
+        .{
+            .pattern = &[_]u8{ 0xF0, 0x9F, 0x92 },
+            .start = 0,
+            .end = 3,
+        },
+        .{
+            .pattern = &[_]u8{ '[', 0xE2, '(', 0xA1, ']' },
+            .start = 1,
+            .end = 4,
+        },
+    };
+
+    for (test_cases) |tc| {
+        try expectParseError(gpa, tc.pattern, .{
+            .err = .utf8_codepoint_invalid,
+            .span = .{ .start = tc.start, .end = tc.end },
+        });
+    }
+}
+
 test "parse errors for unsupported group syntax" {
     const gpa = testing.allocator;
 
@@ -1116,6 +1237,7 @@ const Allocator = mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
 const hash_map = std.hash_map;
+const std_unicode = std.unicode;
 
 const Ast = @import("Ast.zig");
 const Node = Ast.Node;

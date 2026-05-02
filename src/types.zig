@@ -26,6 +26,8 @@ pub const CompileOptions = struct {
         dot_matches_new_line: bool = false,
         /// `U`: invert the default greediness of repetition operators.
         swap_greed: bool = false,
+        /// `u`: enable Unicode scalar semantics.
+        unicode: bool = false,
     };
 
     /// Limits used to guard compilation work and program size.

@@ -8,6 +8,10 @@ transitions: ArrayList(Transition) = .empty,
 branches: ArrayList(StateId) = .empty,
 arena: std.heap.ArenaAllocator,
 
+byte_cls: ranges_mod.ByteClassBuilder = .empty,
+scalar_cls: ranges_mod.ScalarClassBuilder = .empty,
+tmp_arena: std.heap.ArenaAllocator,
+
 /// See `Program.matcher_count`.
 matcher_count: u32 = 0,
 
@@ -17,9 +21,6 @@ flags: SyntaxFlags,
 max_states: usize,
 /// Diagnostics
 diag: ?*Diagnostics,
-
-/// Char class builder
-cls_builder: ClassBuilder,
 
 const Error = error{Compile} || Allocator.Error;
 
@@ -34,13 +35,13 @@ pub fn compile(gpa: Allocator, pattern: []const u8, options: TopLevelOptions) !*
     defer ast.deinit();
     var compiler: Compiler = .{
         .arena = .init(gpa),
-        .cls_builder = .init(gpa),
+        .tmp_arena = .init(gpa),
         .flags = options.syntax,
         .max_states = try getMaxState(options.limits.max_states, options.diag),
         .diag = options.diag,
     };
     errdefer compiler.arena.deinit();
-    defer compiler.cls_builder.deinit();
+    defer compiler.tmp_arena.deinit();
     return compiler.compileAst(&ast);
 }
 
@@ -80,18 +81,73 @@ fn compileAst(c: *Compiler, ast: *Ast) Error!*Program {
 
 fn compileNode(c: *Compiler, ast: *const Ast, node_index: Ast.Node.Index) Error!Frag {
     const a = c.arena.allocator();
+    const cls_a = c.tmp_arena.allocator();
     const node = ast.nodes[node_index];
     switch (node) {
         .literal => |lit| {
-            return c.literal(lit);
+            if (c.flags.unicode) {
+                const cp = lit.char();
+                if (!c.flags.case_insensitive)
+                    return c.compileUtf8Sequence(.fromCodePoint(cp));
+
+                c.scalar_cls.clear();
+                try c.scalar_cls.appendRange(cls_a, .init(cp, cp), true);
+                return c.compileScalarClass(c.scalar_cls.slice());
+            } else {
+                const byte = lit.byte() orelse switch (lit) {
+                    .verbatim => |cp| return c.compileUtf8Sequence(.fromCodePoint(cp)),
+                    .hex => |hex| switch (hex) {
+                        .x_brace => return c.err(.unicode_in_byte_mode),
+                        .x => unreachable,
+                    },
+                    .escaped, .c_style => unreachable,
+                };
+                if (!c.flags.case_insensitive) return c.byteRange(.init(byte, byte));
+
+                c.byte_cls.clear();
+                try c.byte_cls.appendRange(cls_a, .init(byte, byte), true);
+                return c.compileByteClass(c.byte_cls.slice());
+            }
         },
         .dot => {
-            const any_kind: State.Any.Kind =
-                if (c.flags.dot_matches_new_line) .all else .not_lf;
-            return c.state(.{ .any = .{ .kind = any_kind, .out = 0 } });
+            if (c.flags.unicode) {
+                c.scalar_cls.clear();
+                try c.scalar_cls.appendDotClass(cls_a, c.flags.dot_matches_new_line);
+                return c.compileScalarClass(c.scalar_cls.slice());
+            } else {
+                c.byte_cls.clear();
+                try c.byte_cls.appendDotClass(cls_a, c.flags.dot_matches_new_line);
+                return c.compileByteClass(c.byte_cls.slice());
+            }
         },
-        .class_perl => |cls| return c.namedClass(cls),
-        .class => |cls| return c.class(ast, cls),
+        .class_perl => |cls| {
+            if (c.flags.unicode) {
+                c.scalar_cls.clear();
+                try c.scalar_cls.appendPerlClass(cls_a, cls, c.flags.case_insensitive);
+                return c.compileScalarClass(c.scalar_cls.slice());
+            } else {
+                c.byte_cls.clear();
+                try c.byte_cls.appendPerlClass(cls_a, cls, c.flags.case_insensitive);
+                return c.compileByteClass(c.byte_cls.slice());
+            }
+        },
+        .class => |cls| {
+            if (c.flags.unicode) {
+                c.scalar_cls.clear();
+                for (ast.classItems(cls)) |item| {
+                    try c.appendScalarClassItem(cls_a, item);
+                }
+                if (cls.negated) try c.scalar_cls.negate(cls_a);
+                return c.compileScalarClass(c.scalar_cls.slice());
+            } else {
+                c.byte_cls.clear();
+                for (ast.classItems(cls)) |item| {
+                    try c.appendByteClassItem(cls_a, item);
+                }
+                if (cls.negated) try c.byte_cls.negate(cls_a);
+                return c.compileByteClass(c.byte_cls.slice());
+            }
+        },
         .group => |gr| {
             const capture_index = switch (gr.kind) {
                 .numbered => |index| index,
@@ -250,7 +306,7 @@ fn emitState(c: *Compiler, s: State) !StateId {
     const id: StateId = @intCast(c.states.items.len);
     try c.states.append(c.arena.allocator(), s);
     switch (s) {
-        .byte_range, .sparse, .any, .fail, .match => c.matcher_count += 1,
+        .byte_range, .sparse, .fail, .match => c.matcher_count += 1,
         .empty, .capture, .assert, .alt, .alt2 => {},
     }
     return id;
@@ -261,14 +317,14 @@ fn state(c: *Compiler, s: State) !Frag {
     return .{
         .id = id,
         .outs = switch (s) {
-            .byte_range, .any, .empty, .capture, .assert => .fromStateOut(id),
+            .byte_range, .empty, .capture, .assert => .fromStateOut(id),
             .sparse, .fail, .match, .alt, .alt2 => .empty,
         },
         // .alt and .alt2 are typically emitted before their branch fragments are
         // known, so callers overwrite their nullable value once children are
         // attached.
         .nullable = switch (s) {
-            .byte_range, .sparse, .any, .alt, .alt2, .fail => false,
+            .byte_range, .sparse, .alt, .alt2, .fail => false,
             .empty, .capture, .assert, .match => true,
         },
     };
@@ -367,122 +423,119 @@ fn empty(c: *Compiler) !Frag {
     return c.state(.{ .empty = .{ .out = 0 } });
 }
 
-/// Builder methods do not preserve canonical ordering (sorted, non-overlapping,
-/// non-adjacent ranges). Call `negate` or `finalize` before consuming ranges
-/// that require canonical ordering.
-const ClassBuilder = struct {
-    bytes: ByteRangeSet = .empty,
-    tmp_bytes: ByteRangeSet = .empty,
-    arena: std.heap.ArenaAllocator,
-
-    fn init(gpa: Allocator) ClassBuilder {
-        return .{ .arena = .init(gpa) };
+fn appendByteClassItem(c: *Compiler, gpa: Allocator, item: Ast.Class.Item) !void {
+    const fold = c.flags.case_insensitive;
+    switch (item) {
+        .literal => |lit| {
+            const byte = lit.byte() orelse return c.err(.unicode_in_byte_mode);
+            try c.byte_cls.appendRange(gpa, .init(byte, byte), fold);
+        },
+        .range => |r| {
+            const from = r.from.byte() orelse return c.err(.unicode_in_byte_mode);
+            const to = r.to.byte() orelse return c.err(.unicode_in_byte_mode);
+            try c.byte_cls.appendRange(gpa, .init(from, to), fold);
+        },
+        .perl => |cls| try c.byte_cls.appendPerlClass(gpa, cls, fold),
+        .ascii => |cls| try c.byte_cls.appendPosixClass(gpa, cls, fold),
     }
+}
 
-    fn deinit(self: *ClassBuilder) void {
-        self.arena.deinit();
+fn appendScalarClassItem(c: *Compiler, gpa: Allocator, item: Ast.Class.Item) !void {
+    const fold = c.flags.case_insensitive;
+    switch (item) {
+        .literal => |lit| try c.scalar_cls.appendRange(gpa, .init(lit.char(), lit.char()), fold),
+        .range => |r| try c.scalar_cls.appendRange(gpa, .init(r.from.char(), r.to.char()), fold),
+        .perl => |cls| try c.scalar_cls.appendPerlClass(gpa, cls, fold),
+        .ascii => |cls| try c.scalar_cls.appendPosixClass(gpa, cls, fold),
     }
+}
 
-    fn clear(self: *ClassBuilder) void {
-        self.bytes.clear();
-        self.tmp_bytes.clear();
-    }
-
-    fn addRange(self: *ClassBuilder, range: ByteRange, fold: bool) !void {
-        const a = self.arena.allocator();
-        try self.bytes.append(a, range, fold);
-    }
-
-    fn addNamedClass(self: *ClassBuilder, cls: anytype, fold: bool) !void {
-        const a = self.arena.allocator();
-        try self.bytes.appendSlice(a, named_class.getRanges(cls), fold);
-        if (named_class.isNegated(cls)) try self.bytes.negate(a);
-    }
-
-    fn appendClassItem(self: *ClassBuilder, item: Ast.Class.Item, fold: bool) !void {
-        const a = self.arena.allocator();
-        switch (item) {
-            .literal => |lit| {
-                try self.bytes.append(a, .{ .from = lit.char(), .to = lit.char() }, fold);
-            },
-            .range => |r| {
-                try self.bytes.append(a, .{ .from = r.from.char(), .to = r.to.char() }, fold);
-            },
-            inline .perl, .ascii => |cls| try self.appendNamedClassItem(cls, fold),
-        }
-    }
-
-    fn appendNamedClassItem(self: *ClassBuilder, cls: anytype, fold: bool) !void {
-        const a = self.arena.allocator();
-        const ranges = named_class.getRanges(cls);
-        if (!named_class.isNegated(cls)) return self.bytes.appendSlice(a, ranges, fold);
-
-        self.tmp_bytes.clear();
-        try self.tmp_bytes.appendSlice(a, ranges, fold);
-        try self.tmp_bytes.negate(a);
-        try self.bytes.appendSlice(a, self.tmp_bytes.slice(), false);
-    }
-
-    fn negate(self: *ClassBuilder) !void {
-        try self.bytes.negate(self.arena.allocator());
-    }
-
-    fn finalize(self: *ClassBuilder, c: *Compiler) !Frag {
-        defer self.clear();
-        try self.bytes.canonicalize();
-        switch (self.bytes.len()) {
-            0 => return c.state(.fail),
-            1 => {
-                const range = self.bytes.ranges.items[0];
-                return c.state(.{ .byte_range = .{
+fn compileByteClass(c: *Compiler, ranges: []const ByteRange) !Frag {
+    switch (ranges.len) {
+        0 => return c.state(.fail),
+        1 => return c.byteRange(ranges[0]),
+        else => {
+            const start = c.transitions.items.len;
+            for (ranges) |range| {
+                try c.transitions.append(c.arena.allocator(), .{
                     .from = range.from,
                     .to = range.to,
                     .out = 0,
-                } });
-            },
-            else => {
-                const start = c.transitions.items.len;
-                for (self.bytes.ranges.items) |range| {
-                    try c.transitions.append(c.arena.allocator(), .{
-                        .from = range.from,
-                        .to = range.to,
-                        .out = 0,
-                    });
-                }
-                var frag = try c.state(.{ .sparse = .{
-                    .start = @intCast(start),
-                    .len = @intCast(self.bytes.len()),
-                } });
-                frag.outs = .fromTransitionOuts(c, start, self.bytes.len());
-                return frag;
-            },
+                });
+            }
+            var frag = try c.state(.{ .sparse = .{
+                .start = @intCast(start),
+                .len = @intCast(ranges.len),
+            } });
+            frag.outs = .fromTransitionOuts(c, start, ranges.len);
+            return frag;
+        },
+    }
+}
+
+fn compileScalarClass(c: *Compiler, ranges: []const ScalarRange) !Frag {
+    // TODO: Use a range trie to share UTF-8 byte-range structure and avoid
+    // large unshared alternations for Unicode classes. Reference:
+    // https://github.com/rust-lang/regex/blob/master/regex-automata/src/nfa/thompson/range_trie.rs
+    const branch_start = c.branches.items.len;
+    var outs: PatchList = .empty;
+
+    for (ranges) |range| {
+        var seqs = utf8.Sequences.init(range);
+        while (seqs.next()) |seq| {
+            const branch = try c.compileUtf8Sequence(seq);
+            try c.branches.append(c.arena.allocator(), branch.id);
+            outs = outs.append(c, branch.outs);
         }
     }
-};
 
-fn literal(c: *Compiler, lit: Ast.Literal) !Frag {
-    const byte = lit.char();
-    c.cls_builder.clear();
-    try c.cls_builder.addRange(.init(byte, byte), c.flags.case_insensitive);
-    return c.cls_builder.finalize(c);
-}
-
-fn namedClass(c: *Compiler, cls: anytype) !Frag {
-    c.cls_builder.clear();
-    try c.cls_builder.addNamedClass(cls, c.flags.case_insensitive);
-    return c.cls_builder.finalize(c);
-}
-
-/// Compiles a bracket class by collecting all items, folding them if necessary,
-/// then canonicalizing them. Class negation is done once at the end if necessary.
-fn class(c: *Compiler, ast: *const Ast, cls: Ast.Class) !Frag {
-    c.cls_builder.clear();
-    for (ast.classItems(cls)) |item| {
-        try c.cls_builder.appendClassItem(item, c.flags.case_insensitive);
+    const branch_count = c.branches.items.len - branch_start;
+    switch (branch_count) {
+        0 => return c.state(.fail),
+        1 => {
+            const frag: Frag = .{
+                .id = c.branches.items[branch_start],
+                .outs = outs,
+                .nullable = false,
+            };
+            c.branches.shrinkRetainingCapacity(branch_start);
+            return frag;
+        },
+        2 => {
+            var frag = try c.state(.{ .alt2 = .{
+                .left = c.branches.items[branch_start],
+                .right = c.branches.items[branch_start + 1],
+            } });
+            c.branches.shrinkRetainingCapacity(branch_start);
+            frag.outs = outs;
+            return frag;
+        },
+        else => {
+            var frag = try c.state(.{ .alt = .{
+                .start = @intCast(branch_start),
+                .len = @intCast(branch_count),
+            } });
+            frag.outs = outs;
+            return frag;
+        },
     }
+}
 
-    if (cls.negated) try c.cls_builder.negate();
-    return c.cls_builder.finalize(c);
+fn compileUtf8Sequence(c: *Compiler, seq: utf8.Sequence) !Frag {
+    const ranges = seq.slice();
+    var frag = try c.byteRange(ranges[0]);
+    for (ranges[1..]) |range| {
+        frag = c.cat(frag, try c.byteRange(range));
+    }
+    return frag;
+}
+
+fn byteRange(c: *Compiler, range: ByteRange) !Frag {
+    return c.state(.{ .byte_range = .{
+        .from = range.from,
+        .to = range.to,
+        .out = 0,
+    } });
 }
 
 /// Apply parsed `Ast.Flags` to `SyntaxOptions`. `Ast.Flags` value is assumed to be
@@ -496,6 +549,7 @@ fn applySyntaxFlags(c: *Compiler, flags: Ast.Flags) void {
             .multi_line => opts.multi_line = flag_value,
             .dot_matches_new_line => opts.dot_matches_new_line = flag_value,
             .swap_greed => opts.swap_greed = flag_value,
+            .unicode => opts.unicode = flag_value,
             .disable_op => flag_value = false,
         }
     }
@@ -505,7 +559,7 @@ fn countMatcherStates(states: []const State) u32 {
     var count: u32 = 0;
     for (states) |s| {
         switch (s) {
-            .byte_range, .sparse, .any, .fail, .match => count += 1,
+            .byte_range, .sparse, .fail, .match => count += 1,
             .empty, .capture, .assert, .alt, .alt2 => {},
         }
     }
@@ -838,16 +892,31 @@ test "swap greed option" {
 test "dot compile" {
     try expectProgram(".", &.{
         g.capt(0, 1),
-        g.any(.not_lf, 2),
+        g.sparse(&.{ g.t(0x00, '\n' - 1, 2), g.t('\n' + 1, 0xff, 2) }),
         g.capt(1, 3),
         g.match(),
     });
     try expectProgramWithOptions(".", &.{
         g.capt(0, 1),
-        g.any(.all, 2),
+        g.range(0x00, 0xff, 2),
         g.capt(1, 3),
         g.match(),
     }, .{ .syntax = .{ .dot_matches_new_line = true } });
+}
+
+test "unicode scalar class compile" {
+    try expectProgramWithOptions("[\\x{0}\\x{80}\\x{800}]", &.{
+        g.capt(0, 1),
+        g.alt(&.{ 2, 3, 4 }),
+        g.range(0x00, 0x00, 5),
+        g.range(0xC2, 0xC2, 7),
+        g.range(0xE0, 0xE0, 8),
+        g.capt(1, 6),
+        g.match(),
+        g.range(0x80, 0x80, 5),
+        g.range(0xA0, 0xA0, 9),
+        g.range(0x80, 0x80, 5),
+    }, .{ .syntax = .{ .unicode = true } });
 }
 
 test "case insensitive compile" {
@@ -1017,10 +1086,10 @@ const testing = std.testing;
 const builtin = @import("builtin");
 
 pub const Ast = @import("Ast.zig");
-const named_class = @import("Compiler/named_class.zig");
-const range_set = @import("Compiler/range_set.zig");
-const ByteRange = range_set.ByteRange;
-const ByteRangeSet = range_set.ByteRangeSet;
+const ranges_mod = @import("Compiler/ranges.zig");
+const ByteRange = ranges_mod.ByteRange;
+const ScalarRange = ranges_mod.ScalarRange;
+const utf8 = @import("Compiler/utf8.zig");
 const errors = @import("errors.zig");
 const Diagnostics = errors.Diagnostics;
 const g = @import("program_graph.zig");

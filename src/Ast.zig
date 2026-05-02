@@ -36,13 +36,13 @@ pub const Node = union(enum) {
 
 pub const Literal = union(enum) {
     /// Stored literal is the exact same as input.
-    verbatim: u8,
+    verbatim: u21,
     /// Parsed from escaped meta characters.
     escaped: u8,
     /// Parsed from C style escape characters such as `\n`, `\t`.
     c_style: CStyle,
-    /// Parsed from hex escape '\xNN' such as '\x0B'
-    hex: u8,
+    /// Parsed from hex escape, such as `\xNN` or `\x{...}`.
+    hex: Hex,
 
     pub const CStyle = enum(u8) {
         /// `\a` === `\x07`
@@ -61,10 +61,33 @@ pub const Literal = union(enum) {
         // space,
     };
 
-    pub fn char(self: @This()) u8 {
+    pub const Hex = union(enum) {
+        /// Parsed from fixed-width byte hex escape `\xNN`.
+        x: u8,
+        /// Parsed from braced scalar hex escape `\x{...}`.
+        x_brace: u21,
+    };
+
+    pub fn char(self: @This()) u21 {
         return switch (self) {
             .c_style => |c| @intFromEnum(c),
+            .hex => |hex| switch (hex) {
+                .x => |byte_value| byte_value,
+                .x_brace => |cp| cp,
+            },
             inline else => |c| c,
+        };
+    }
+
+    pub fn byte(self: @This()) ?u8 {
+        return switch (self) {
+            .verbatim => |cp| if (cp <= 0x7F) @intCast(cp) else null,
+            .escaped => |byte_value| byte_value,
+            .c_style => |byte_value| @intFromEnum(byte_value),
+            .hex => |hex| switch (hex) {
+                .x => |byte_value| byte_value,
+                .x_brace => null,
+            },
         };
     }
 };
@@ -163,7 +186,7 @@ pub const Flags = struct {
     len: u8 = 0,
 
     /// Parser limit for the number of items in one inline flag list.
-    pub const max_len = 5;
+    pub const max_len = 6;
 
     pub const Item = enum {
         // Separates enabled flags from disabled flags, as in `im-s`.
@@ -173,6 +196,7 @@ pub const Flags = struct {
         multi_line, // m
         dot_matches_new_line, // s
         swap_greed, // U
+        unicode, // u
 
     };
 
@@ -334,6 +358,7 @@ fn formatFlags(writer: *std.Io.Writer, flags: Flags) !void {
             .multi_line => "m",
             .dot_matches_new_line => "s",
             .swap_greed => "U",
+            .unicode => "u",
             .disable_op => "-",
         });
     }
@@ -371,10 +396,13 @@ fn formatClassPerl(writer: *std.Io.Writer, perl: Class.Perl) !void {
 
 fn formatLiteral(writer: *std.Io.Writer, lit: Literal) !void {
     switch (lit) {
-        .verbatim => |c| try writer.printAsciiChar(c, .{}),
+        .verbatim => |c| try writer.printUnicodeCodepoint(c),
         .escaped => |c| try writer.print("\\{c}", .{c}),
         .c_style => |c| try writer.printAsciiChar(@intFromEnum(c), .{}),
-        .hex => |c| try writer.print("\\x{x:0>2}", .{c}),
+        .hex => |h| switch (h) {
+            .x => |byte_value| try writer.print("\\x{x:0>2}", .{byte_value}),
+            .x_brace => |cp| try writer.print("\\x{{{x}}}", .{cp}),
+        },
     }
 }
 

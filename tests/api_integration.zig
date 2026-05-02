@@ -341,6 +341,53 @@ test "dot matches new line option" {
     }
 }
 
+test "byte-first unicode scalar compilation" {
+    {
+        var re = try Regex.compile(gpa, "α", .{});
+        defer re.deinit();
+        try expect(re.match("α"));
+        try expect(!re.match("a"));
+        try expectEqual(Match{ .start = 0, .end = 2 }, re.find("α").?);
+    }
+    {
+        var re = try Regex.compile(gpa, ".", .{});
+        defer re.deinit();
+        try expectEqual(Match{ .start = 0, .end = 1 }, re.find("α").?);
+    }
+    {
+        var re = try Regex.compile(gpa, "(?u).", .{});
+        defer re.deinit();
+        try expectEqual(Match{ .start = 0, .end = 2 }, re.find("α").?);
+        try expect(!re.match(&[_]u8{0xFF}));
+    }
+    {
+        var re = try Regex.compile(gpa, "(?u)[α-ω]", .{});
+        defer re.deinit();
+        try expect(re.match("β"));
+        try expect(!re.match("A"));
+    }
+    try expectCompileDiag("[α-ω]", .unicode_in_byte_mode);
+    try expectCompileDiag("\\x{03B1}", .unicode_in_byte_mode);
+    try expectCompileDiag("[\\x{03B1}]", .unicode_in_byte_mode);
+    {
+        var re = try Regex.compile(gpa, "(?u)\\x{03B1}", .{});
+        defer re.deinit();
+        try expect(re.match("α"));
+    }
+    {
+        var re = try Regex.compile(gpa, "\\A\\xCE\\z", .{});
+        defer re.deinit();
+        try expect(re.match(&[_]u8{0xCE}));
+        try expect(!re.match("α"));
+    }
+    {
+        var re = try Regex.compile(gpa, "(?u)\\A\\xCE\\z", .{});
+        defer re.deinit();
+        try expect(re.match("Î"));
+        try expect(!re.match(&[_]u8{0xCE}));
+    }
+}
+
 test "ignore case option" {
     {
         var re = try Regex.compile(gpa, "\\Aabc\\z", .{});
@@ -407,6 +454,43 @@ test "ignore case option" {
         var re = try Regex.compile(gpa, "\\A[[:upper:]]+\\z", .{ .syntax = .{ .case_insensitive = true } });
         defer re.deinit();
         try expect(re.match("ab"));
+    }
+}
+
+test "unicode simple case folding" {
+    {
+        var re = try Regex.compile(gpa, "(?iu)\\Ak\\z", .{});
+        defer re.deinit();
+        try expect(re.match("k"));
+        try expect(re.match("K"));
+        try expect(re.match("K"));
+    }
+    {
+        var re = try Regex.compile(gpa, "(?i)\\Ak\\z", .{});
+        defer re.deinit();
+        try expect(re.match("K"));
+        try expect(!re.match("K"));
+    }
+    {
+        var re = try Regex.compile(gpa, "(?i)\\AK\\z", .{});
+        defer re.deinit();
+        try expect(re.match("K"));
+        try expect(!re.match("K"));
+    }
+    {
+        var re = try Regex.compile(gpa, "(?iu)\\AΣ\\z", .{});
+        defer re.deinit();
+        try expect(re.match("Σ"));
+        try expect(re.match("σ"));
+        try expect(re.match("ς"));
+    }
+    {
+        var re = try Regex.compile(gpa, "(?iu)\\A[^k]\\z", .{});
+        defer re.deinit();
+        try expect(!re.match("k"));
+        try expect(!re.match("K"));
+        try expect(!re.match("K"));
+        try expect(re.match("x"));
     }
 }
 
@@ -557,6 +641,16 @@ test "max_states limit" {
             },
             .parse => return error.TestUnexpectedResult,
         }
+    }
+}
+
+fn expectCompileDiag(pattern: []const u8, expected: Diagnostics.Compile) !void {
+    var diag: Diagnostics = undefined;
+    try expectError(error.Compile, Regex.compile(gpa, pattern, .{ .diag = &diag }));
+
+    switch (diag) {
+        .compile => |compile_diag| try expectEqual(expected, compile_diag),
+        .parse => return error.TestUnexpectedResult,
     }
 }
 

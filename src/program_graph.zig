@@ -10,7 +10,6 @@ pub const Id = Program.StateId;
 pub const Index = Program.Index;
 pub const Transition = Program.State.Transition;
 pub const Predicate = Program.State.Assertion.Predicate;
-pub const AnyKind = Program.State.Any.Kind;
 
 /// Canonical graph vertex used by Program introspection helpers.
 ///
@@ -20,7 +19,6 @@ pub const AnyKind = Program.State.Any.Kind;
 pub const Vertex = union(enum) {
     byte_range: struct { from: u8, to: u8, out: Id },
     sparse: struct { items: []const Transition },
-    any: struct { kind: AnyKind, out: Id },
     empty: struct { out: Id },
     assert: struct { pred: Predicate, out: Id },
     capture: struct { slot: Index, out: Id },
@@ -82,10 +80,6 @@ pub fn t(from: u8, to: u8, out: Id) Transition {
     return .{ .from = from, .to = to, .out = out };
 }
 
-pub fn any(kind: AnyKind, out: Id) Vertex {
-    return .{ .any = .{ .kind = kind, .out = out } };
-}
-
 pub fn empty(out: Id) Vertex {
     return .{ .empty = .{ .out = out } };
 }
@@ -131,7 +125,6 @@ pub fn dumpGraph(w: *std.Io.Writer, vertices: []const Vertex) !void {
                 }
                 try w.writeAll(")");
             },
-            .any => |s| try w.print("any({s}) -> s{d}", .{ @tagName(s.kind), s.out }),
             .empty => |s| try w.print("empty -> s{d}", .{s.out}),
             .assert => |s| try w.print("assert({s}) -> s{d}", .{ @tagName(s.pred), s.out }),
             .capture => |s| try w.print("capt({d}) -> s{d}", .{ s.slot, s.out }),
@@ -240,13 +233,6 @@ pub fn graphView(prog: *const Program, gpa: Allocator) !GraphView {
                     }
                     std.mem.reverse(Id, stack[pushed_start..stack_top]);
                     break :vertex .{ .sparse = .{ .items = items } };
-                },
-                .any => |s| {
-                    const out = getOrAssignLabel(labels, &next_label, s.out);
-                    if (out.is_new) {
-                        next_id = s.out;
-                    }
-                    break :vertex .{ .any = .{ .kind = s.kind, .out = out.label } };
                 },
                 .empty => |s| {
                     const out = getOrAssignLabel(labels, &next_label, s.out);

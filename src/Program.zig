@@ -43,7 +43,7 @@ pub fn literalPrefix(p: *const Program) ?u8 {
 pub const Index = u32;
 /// Length type for metadata arrays (such as Program.transitions or .branches).
 /// Typically Index and Length are used together as a `slice` into metadata arrays.
-pub const Length = u16;
+pub const Length = u32;
 
 /// Position of a character into input `haystack`.
 /// It is sized as `u31` so `?Offset` fits in 32 bits for capture slot storage.
@@ -59,10 +59,6 @@ pub const State = union(enum) {
 
     /// Consumes a single byte via one of Program.transitions[start..][0..len].
     sparse: struct { start: Index, len: Length },
-
-    /// Consumes any input character and conditionally transitions to the next state
-    /// based on `kind`.
-    any: Any,
 
     /// Unconditional epsilon transition that does not consume any input character.
     empty: struct { out: Id },
@@ -106,16 +102,6 @@ pub const State = union(enum) {
         }
     };
 
-    pub const Any = struct {
-        kind: Kind,
-        out: Id,
-
-        pub const Kind = enum {
-            all,
-            not_lf,
-        };
-    };
-
     pub const Assertion = struct {
         pred: Predicate,
         out: Id,
@@ -150,7 +136,6 @@ pub fn dump(prog: Program, w: *std.Io.Writer) !void {
                 }
                 try w.writeAll("\n");
             },
-            .any => |pl| try w.print("{d:>3} {s:<11}                           out={d:<3}  kind={s}\n", .{ i, @tagName(state), pl.out, @tagName(pl.kind) }),
             .empty => |pl| try w.print("{d:>3} {s:<11}                           out={d:<3}\n", .{ i, @tagName(state), pl.out }),
             .assert => |pl| try w.print("{d:>3} {s:<11}                           out={d:<3}  pred={s}\n", .{ i, @tagName(state), pl.out, @tagName(pl.pred) }),
             .alt => |pl| {
