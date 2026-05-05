@@ -1,34 +1,48 @@
 const Parser = @This();
-arena: ArenaAllocator,
 
+offset: usize,
 // Not owned by parser
 pattern: []const u8,
-offset: usize,
 
 nodes: ArrayList(Node) = .empty,
-stack: ArrayList(Frame) = .empty,
+indices: ArrayList(Node.Index) = .empty,
 capture_info: CaptureInfo.Builder,
+arena: ArenaAllocator,
+
+/// Stack-shaped scratch pool for concat builders. Each active concat is the tail
+/// slice starting at a saved index. When a concat is finalized, its content at
+/// the tail of this pool is moved to `Parser.indices`.
+concat: ArrayList(Node.Index) = .empty,
+/// Stack-shaped scratch pool for alternation builders. Each active alternation
+/// is the tail slice starting at a saved index, and each item in that slice is a
+/// finalized branch node waiting to become part of an `.alternation` node.
+alt: ArrayList(Node.Index) = .empty,
+/// Parser stack for nested patterns. A `.concat` frame stashes the parent
+/// concat while parsing a group; a `.alt` frame tracks the current alternation
+/// for `|`, `)` or end of input to finalize the alternation node.
+stack: ArrayList(Frame) = .empty,
 
 options: Options,
 
 pub const Error = error{Parse} || Allocator.Error;
 
 const Frame = union(enum) {
-    /// When a group is encountered, the in-progress concat is pushed to the stack as `prev`,
-    /// and a new concat is created to parse the group. When the group concat is finished,
-    /// this `prev` concat is popped and receives the group concat as child.
+    /// When a group is encountered, the parent concat's start index is pushed to the stack,
+    /// and a new concat is marked to parse the group. When the group concat is finished,
+    /// the parent concat is resumed and receives the group concat as child.
     concat: struct {
-        /// The actual value of the prev concat.
-        value: *NodeList,
-        /// The kind of group being parsed
+        /// The start index of this concat in the `Parser.concat` pool.
+        start: usize,
+        /// The kind of group being parsed. Even though it is not metadata of the parent
+        /// concat, this is a natural place to store it.
         group_kind: Ast.Group.Kind,
         /// Span of the opening `(`, mostly used for unclosed-group diagnostics.
         opener_span: Span,
     },
-    /// When a new branch of alternation is encountered, the in-progress concat is finalized
-    /// and becomes child of an "alt builder". This alt builder is the one on top of the stack
-    /// if one exists, otherwise a new alt builder is created and pushed to the stack.
-    alt: *NodeList,
+    /// When a `|` is encountered, the in-progress concat is finalized as a branch of the
+    /// current alternation if one exists on top of the stack; otherwise, a new alternation
+    /// is marked and pushed to the stack.
+    alt: usize,
 };
 
 pub const Options = struct {
@@ -52,7 +66,7 @@ pub fn parse(p: *Parser) Error!Ast {
         p.capture_info.deinit();
         p.arena.deinit();
     }
-    var concat = try p.createNodeList();
+    var concat = p.newConcat();
     const a = p.arena.allocator();
 
     while (p.eat()) |c| {
@@ -64,17 +78,18 @@ pub fn parse(p: *Parser) Error!Ast {
             '+' => try p.parseRepetition(concat, .plus),
             '?' => try p.parseRepetition(concat, .question),
             '{' => try p.parseRepetition(concat, .range),
-            '[' => try concat.append(a, try p.addNode(try p.parseClass())),
-            '\\' => try concat.append(a, try p.addNode(try p.parseEscape())),
-            '.' => try concat.append(a, try p.addNode(.dot)),
-            '^' => try concat.append(a, try p.addNode(.{ .assertion = .start_line_or_text })),
-            '$' => try concat.append(a, try p.addNode(.{ .assertion = .end_line_or_text })),
-            else => try concat.append(a, try p.addNode(.{ .literal = .{ .verbatim = c } })),
+            '[' => try p.concat.append(a, try p.addNode(try p.parseClass())),
+            '\\' => try p.concat.append(a, try p.addNode(try p.parseEscape())),
+            '.' => try p.concat.append(a, try p.addNode(.dot)),
+            '^' => try p.concat.append(a, try p.addNode(.{ .assertion = .start_line_or_text })),
+            '$' => try p.concat.append(a, try p.addNode(.{ .assertion = .end_line_or_text })),
+            else => try p.concat.append(a, try p.addNode(.{ .literal = .{ .verbatim = c } })),
         }
     } else try p.popGroupAtEnd(concat);
 
     return .{
         .nodes = try p.nodes.toOwnedSlice(a),
+        .indices = try p.indices.toOwnedSlice(a),
         .capture_info = try p.capture_info.finalize(),
         .arena = p.arena,
     };
@@ -87,39 +102,55 @@ fn addNode(p: *Parser, node: Node) !Node.Index {
     return @intCast(p.nodes.items.len - 1);
 }
 
-fn createNodeList(p: *Parser) !*NodeList {
-    const a = p.arena.allocator();
-    const new_concat = try a.create(NodeList);
-    new_concat.* = .empty;
-    return new_concat;
+fn newConcat(p: *Parser) usize {
+    return p.concat.items.len;
 }
 
-fn pushAlt(p: *Parser, cur_concat: *NodeList) !*NodeList {
+fn newAlt(p: *Parser) usize {
+    return p.alt.items.len;
+}
+
+fn finishConcat(p: *Parser, start: usize) !Node.Index {
+    const concat_items = p.concat.items[start..];
+    const concat_node: Node = .{ .concat = .{
+        .start = @intCast(p.indices.items.len),
+        .len = @intCast(concat_items.len),
+    } };
+    try p.indices.appendSlice(p.arena.allocator(), concat_items);
+    p.concat.shrinkRetainingCapacity(start);
+    return p.addNode(concat_node);
+}
+
+fn finishAlt(p: *Parser, start: usize) !Node.Index {
+    const alt_items = p.alt.items[start..];
+    const alt_node: Node = .{ .alternation = .{
+        .start = @intCast(p.indices.items.len),
+        .len = @intCast(alt_items.len),
+    } };
+    try p.indices.appendSlice(p.arena.allocator(), alt_items);
+    p.alt.shrinkRetainingCapacity(start);
+    return p.addNode(alt_node);
+}
+
+fn pushAlt(p: *Parser, cur_concat: usize) !usize {
     assert(p.prev() == '|');
     const a = p.arena.allocator();
-    if (p.stack.items.len > 0) {
-        const stack_top = p.stack.items[p.stack.items.len - 1];
-        switch (stack_top) {
-            .alt => |alt| {
-                // there is an existing alternation builder
-                // remember to convert concat builder to Node to store in alternation builder!
-                const concat_index = try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
-                try alt.append(a, concat_index);
-                return p.createNodeList();
-            },
-            else => {},
-        }
-    }
+
+    const concat_index = try p.finishConcat(cur_concat);
+
+    const need_alt_builder = p.stack.items.len == 0 or
+        switch (p.stack.items[p.stack.items.len - 1]) {
+            .alt => false,
+            .concat => true,
+        };
     // stack is empty or stack top is not an alternation builder, so add a new one
-    // remember to convert concat builder to Node to store in alternation builder!
-    const new_alt = try p.createNodeList();
-    const concat_index = try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
-    try new_alt.append(a, concat_index);
-    try p.stack.append(a, .{ .alt = new_alt });
-    return p.createNodeList();
+    if (need_alt_builder) try p.stack.append(a, .{ .alt = p.newAlt() });
+
+    try p.alt.append(a, concat_index);
+    return p.newConcat();
 }
 
-fn pushGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
+fn pushGroup(p: *Parser, cur_concat: usize) !usize {
     assert(p.prev() == '(');
     const a = p.arena.allocator();
     const opener_span = p.prevSpan();
@@ -128,46 +159,47 @@ fn pushGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
         .flags_only => |flags| {
             // This is a SetFlags node, add it to cur_concat and continue
             const flags_index = try p.addNode(.{ .set_flags = flags });
-            try cur_concat.append(a, flags_index);
+            try p.concat.append(a, flags_index);
             return cur_concat;
         },
         .group => |kind| {
             // shelf cur_concat and create new concat to parse group
             try p.stack.append(a, .{ .concat = .{
-                .value = cur_concat,
+                .start = cur_concat,
                 .opener_span = opener_span,
                 .group_kind = kind,
             } });
-            return p.createNodeList();
+            return p.newConcat();
         },
     }
 }
 
-fn popGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
+fn popGroup(p: *Parser, cur_concat: usize) !usize {
     assert(p.prev() == ')');
     const a = p.arena.allocator();
     const stack_top = p.stack.pop() orelse return p.err(.group_close_unexpected);
     switch (stack_top) {
         .concat => |concat| {
-            // cur_concat contains the content of the Group node
-            const concat_index = try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
+            // cur_concat contains the content of a Group node
+            const concat_index = try p.finishConcat(cur_concat);
             const group_index = try p.addNode(.{
                 .group = .{ .node = concat_index, .kind = concat.group_kind },
             });
-            try concat.value.append(a, group_index);
-            return concat.value;
+            try p.concat.append(a, group_index);
+            return concat.start;
         },
-        .alt => |alt| {
-            // cur_concat is the else branch of last alternation, pop stack once more to find prev_concat
-            try alt.append(a, try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } }));
+        .alt => |cur_alt| {
+            // cur_concat is the else branch of last alternation, pop stack once more to find
+            // the parent concat
+            try p.alt.append(a, try p.finishConcat(cur_concat));
             const next_top = p.stack.pop() orelse return p.err(.group_close_unexpected);
             switch (next_top) {
                 .concat => |concat| {
-                    const alt_index = try p.addNode(.{ .alternation = .{ .nodes = try alt.toOwnedSlice(a) } });
-                    try concat.value.append(a, try p.addNode(.{
+                    const alt_index = try p.finishAlt(cur_alt);
+                    try p.concat.append(a, try p.addNode(.{
                         .group = .{ .node = alt_index, .kind = concat.group_kind },
                     }));
-                    return concat.value;
+                    return concat.start;
                 },
                 .alt => {
                     // we never push alternation builder twice
@@ -181,7 +213,7 @@ fn popGroup(p: *Parser, cur_concat: *NodeList) !*NodeList {
 /// This is called when the parser has reached the end. There are only two valid scenarios:
 /// either the stack is empty or there is only one alternation builder on the stack.
 /// Otherwise an error is returned.
-fn popGroupAtEnd(p: *Parser, cur_concat: *NodeList) !void {
+fn popGroupAtEnd(p: *Parser, cur_concat: usize) !void {
     if (p.stack.items.len > 1) {
         return p.errAt(.group_not_closed, p.unclosedGroupSpan());
     }
@@ -189,17 +221,17 @@ fn popGroupAtEnd(p: *Parser, cur_concat: *NodeList) !void {
 
     const stack_top = p.stack.pop() orelse {
         // valid state: nothing on the stack, simply wrap up the current concat node as root
-        _ = try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
+        _ = try p.finishConcat(cur_concat);
         return;
     };
 
     switch (stack_top) {
         .concat => |concat| return p.errAt(.group_not_closed, concat.opener_span),
-        .alt => |alt| {
+        .alt => |cur_alt| {
             // valid state: current concat is a branch of alternation
-            const concat_index = try p.addNode(.{ .concat = .{ .nodes = try cur_concat.toOwnedSlice(a) } });
-            try alt.append(a, concat_index);
-            _ = try p.addNode(.{ .alternation = .{ .nodes = try alt.toOwnedSlice(a) } });
+            const concat_index = try p.finishConcat(cur_concat);
+            try p.alt.append(a, concat_index);
+            _ = try p.finishAlt(cur_alt);
         },
     }
 
@@ -347,13 +379,13 @@ fn parseFlag(c: u8) Ast.Flag {
 
 fn parseRepetition(
     p: *Parser,
-    concat: *NodeList,
+    cur_concat: usize,
     kind: enum { star, plus, question, range },
 ) !void {
     assert(p.prev() == '*' or p.prev() == '+' or p.prev() == '?' or p.prev() == '{');
 
-    if (concat.items.len == 0) return p.err(.repeat_argument_missing);
-    const last_concat_node = concat.items[concat.items.len - 1];
+    if (p.concat.items[cur_concat..].len == 0) return p.err(.repeat_argument_missing);
+    const last_concat_node = &p.concat.items[p.concat.items.len - 1];
 
     const rep_kind: Ast.Repetition.Kind =
         switch (kind) {
@@ -380,10 +412,10 @@ fn parseRepetition(
         .repetition = .{
             .kind = rep_kind,
             .lazy_suffix = has_lazy_suffix,
-            .node = last_concat_node,
+            .node = last_concat_node.*,
         },
     });
-    concat.items[concat.items.len - 1] = repeat_node;
+    last_concat_node.* = repeat_node;
 }
 
 fn parseDecimal(p: *Parser) !struct { value: u16, span: Span } {

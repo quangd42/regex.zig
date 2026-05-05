@@ -3,7 +3,13 @@ const CaptureInfo = @import("CaptureInfo.zig");
 
 const Ast = @This();
 
+/// All tree nodes stored in a flat array.
 nodes: []Node,
+/// Backing pool for`.concat` and `.alternation` nodes, which store
+/// `start`/`len` ranges into this slice.
+indices: []Node.Index,
+/// Capture-group metadata shared across parsing, compilation, and matching.
+/// It tracks the total capture count plus optional name lookup in both directions.
 capture_info: CaptureInfo,
 arena: std.heap.ArenaAllocator,
 
@@ -187,11 +193,13 @@ pub const Flags = struct {
 };
 
 pub const Alternation = struct {
-    nodes: []Node.Index,
+    start: u32,
+    len: u32,
 };
 
 pub const Concat = struct {
-    nodes: []Node.Index,
+    start: u32,
+    len: u32,
 };
 
 pub const Repetition = struct {
@@ -227,10 +235,15 @@ pub const Assertion = enum {
     not_word_boundary,
 };
 
-/// Returns the root node, which is the last node in Ast.nodes.
+/// Return the root node, which is the last node in `Ast.nodes`.
 pub fn root(ast: Ast) Node.Index {
     std.debug.assert(ast.nodes.len > 0);
     return @intCast(ast.nodes.len - 1);
+}
+
+/// Return a slice of node indices from `Ast.indices`.
+pub fn indexSlice(ast: Ast, start: usize, len: usize) []Node.Index {
+    return ast.indices[start..][0..len];
 }
 
 pub fn format(
@@ -273,14 +286,16 @@ fn formatNode(self: @This(), writer: *std.Io.Writer, index: Node.Index) std.Io.W
             try writer.writeAll(")");
         },
         .alternation => |a| {
-            try self.formatNode(writer, a.nodes[0]);
-            for (a.nodes[1..]) |node_index| {
+            const alt = self.indexSlice(a.start, a.len);
+            try self.formatNode(writer, alt[0]);
+            for (alt[1..]) |node_index| {
                 try writer.printAsciiChar('|', .{});
                 try self.formatNode(writer, node_index);
             }
         },
         .concat => |c| {
-            for (c.nodes) |node_index| {
+            const concat = self.indexSlice(c.start, c.len);
+            for (concat) |node_index| {
                 try self.formatNode(writer, node_index);
             }
         },

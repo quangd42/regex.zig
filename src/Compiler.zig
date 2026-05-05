@@ -125,33 +125,35 @@ fn compileNode(c: *Compiler, ast: *const Ast, node_index: Ast.Node.Index) Error!
             c.applySyntaxFlags(flags);
             return c.empty();
         },
-        .concat => |concat| {
-            if (concat.nodes.len == 0) {
+        .concat => |c_node| {
+            if (c_node.len == 0) {
                 // Occurs in empty alternation branch
                 return c.empty();
             }
-            var frag = try c.compileNode(ast, concat.nodes[0]);
-            for (concat.nodes[1..]) |index| {
+            const concat = ast.indexSlice(c_node.start, c_node.len);
+            var frag = try c.compileNode(ast, concat[0]);
+            for (concat[1..]) |index| {
                 frag = c.cat(frag, try c.compileNode(ast, index));
             }
             return frag;
         },
-        .alternation => |alt| {
-            switch (alt.nodes.len) {
+        .alternation => |a_node| {
+            const alt = ast.indexSlice(a_node.start, a_node.len);
+            switch (alt.len) {
                 0 => return c.empty(),
-                1 => return c.compileNode(ast, alt.nodes[0]),
+                1 => return c.compileNode(ast, alt[0]),
                 2 => return c.alt2(
-                    try c.compileNode(ast, alt.nodes[0]),
-                    try c.compileNode(ast, alt.nodes[1]),
+                    try c.compileNode(ast, alt[0]),
+                    try c.compileNode(ast, alt[1]),
                 ),
                 else => {
                     const start = c.branches.items.len;
-                    try c.branches.ensureTotalCapacity(a, start + alt.nodes.len);
+                    try c.branches.ensureTotalCapacity(a, start + alt.len);
 
                     var frag = try c.state(.{
-                        .alt = .{ .start = @intCast(start), .len = @intCast(alt.nodes.len) },
+                        .alt = .{ .start = @intCast(start), .len = @intCast(alt.len) },
                     });
-                    for (alt.nodes) |index| {
+                    for (alt) |index| {
                         const branch = try c.compileNode(ast, index);
                         c.branches.appendAssumeCapacity(branch.id);
                         frag.outs = frag.outs.append(c, branch.outs);
