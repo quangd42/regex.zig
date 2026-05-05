@@ -6,6 +6,7 @@ pattern: []const u8,
 
 nodes: ArrayList(Node) = .empty,
 indices: ArrayList(Node.Index) = .empty,
+class_items: ArrayList(Class.Item) = .empty,
 capture_info: CaptureInfo.Builder,
 arena: ArenaAllocator,
 
@@ -90,6 +91,7 @@ pub fn parse(p: *Parser) Error!Ast {
     return .{
         .nodes = try p.nodes.toOwnedSlice(a),
         .indices = try p.indices.toOwnedSlice(a),
+        .class_items = try p.class_items.toOwnedSlice(a),
         .capture_info = try p.capture_info.finalize(),
         .arena = p.arena,
     };
@@ -331,31 +333,24 @@ fn parseNamedGroup(p: *Parser, p_prefix: bool) !GroupKind {
 fn parseFlags(p: *Parser) !Ast.Flags {
     assert(p.prev() == '?');
     var flags: Ast.Flags = .{};
-    var flag_spans = [_]?Span{null} ** std.meta.fields(Ast.Flag).len;
-    var disable_span: ?Span = null;
+    var flag_spans = [_]?Span{null} ** std.meta.fields(Ast.Flags.Item).len;
     var disable_op_last = false;
 
     while (p.peek()) |c| {
         switch (c) {
-            '-' => {
-                _ = p.eat();
-                if (disable_span) |span| {
-                    return p.errWithAuxAt(.flag_disable_op_duplicated, p.prevSpan(), span);
-                }
-                disable_span = p.prevSpan();
-                flags.push(.disable_op);
-                disable_op_last = true;
-            },
-            'i', 'm', 's', 'U' => {
+            'i', 'm', 's', 'U', '-' => {
                 _ = p.eat();
                 const flag = parseFlag(c);
                 const i = @intFromEnum(flag);
                 if (flag_spans[i]) |span| {
+                    if (flag == .disable_op) {
+                        return p.errWithAuxAt(.flag_disable_op_duplicated, p.prevSpan(), span);
+                    }
                     return p.errWithAuxAt(.flag_duplicated, p.prevSpan(), span);
                 }
                 flag_spans[i] = p.prevSpan();
-                flags.push(.{ .flag = flag });
-                disable_op_last = false;
+                flags.push(flag);
+                disable_op_last = flag == .disable_op;
             },
             ':', ')' => {
                 if (disable_op_last) return p.err(.flag_disable_op_dangling);
@@ -367,12 +362,13 @@ fn parseFlags(p: *Parser) !Ast.Flags {
     return flags;
 }
 
-fn parseFlag(c: u8) Ast.Flag {
+fn parseFlag(c: u8) Ast.Flags.Item {
     return switch (c) {
         'i' => .case_insensitive,
         'm' => .multi_line,
         's' => .dot_matches_new_line,
         'U' => .swap_greed,
+        '-' => .disable_op,
         else => unreachable,
     };
 }
@@ -453,21 +449,22 @@ fn unwrapItemToLiteral(p: *Parser, item: Class.Item, span: Span) !Ast.Literal {
 fn parseClass(p: *Parser) !Node {
     assert(p.prev() == '[');
     const a = p.arena.allocator();
-    var cls: ArrayList(Class.Item) = .empty;
+    const class_start = p.class_items.items.len;
     var last_item_span: Span = undefined;
     const cls_negated = p.eatIf('^');
 
     const cls_span_start = p.offset - 1; // asserted p.prev() == '['
     while (p.eat()) |c| {
-        if (c == ']' and cls.items.len > 0) break;
+        const class_len = p.class_items.items[class_start..].len;
+        if (c == ']' and class_len > 0) break;
         var item_span_start = p.offset - 1;
         const item: Class.Item = item: {
             if (c == '-') {
                 // Range item
-                if (cls.items.len == 0 or p.peek() == null or p.peek().? == ']') {
+                if (class_len == 0 or p.peek() == null or p.peek().? == ']') {
                     break :item .{ .literal = .{ .verbatim = '-' } };
                 }
-                const top = cls.pop().?;
+                const top = p.class_items.pop().?;
                 const from_lit = try p.unwrapItemToLiteral(top, last_item_span);
                 const to_char = p.eat() orelse return p.errAt(.class_not_closed, p.spanFrom(cls_span_start));
                 const to_item_span_start = p.offset - 1;
@@ -494,12 +491,13 @@ fn parseClass(p: *Parser) !Node {
             }
         };
 
-        try cls.append(a, item);
+        try p.class_items.append(a, item);
         last_item_span = .{ .start = item_span_start, .end = p.offset };
     } else return p.errAt(.class_not_closed, p.spanFrom(cls_span_start));
 
     return .{ .class = .{
-        .items = try cls.toOwnedSlice(a),
+        .start = @intCast(class_start),
+        .len = @intCast(p.class_items.items.len - class_start),
         .negated = cls_negated,
     } };
 }

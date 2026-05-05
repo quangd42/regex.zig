@@ -11,6 +11,7 @@ indices: []Node.Index,
 /// Capture-group metadata shared across parsing, compilation, and matching.
 /// It tracks the total capture count plus optional name lookup in both directions.
 capture_info: CaptureInfo,
+class_items: []Class.Item,
 arena: std.heap.ArenaAllocator,
 
 pub fn deinit(ast: *Ast) void {
@@ -71,7 +72,8 @@ pub const Literal = union(enum) {
 pub const ClassPerl = Class.Perl;
 
 pub const Class = struct {
-    items: []Item,
+    start: u32,
+    len: u32,
     negated: bool,
 
     pub const Item = union(enum) {
@@ -156,13 +158,6 @@ pub const Group = struct {
     };
 };
 
-pub const Flag = enum {
-    case_insensitive, // i
-    multi_line, // m
-    dot_matches_new_line, // s
-    swap_greed, // U
-};
-
 pub const Flags = struct {
     items: [max_len]Item = undefined,
     len: u8 = 0,
@@ -170,11 +165,15 @@ pub const Flags = struct {
     /// Parser limit for the number of items in one inline flag list.
     pub const max_len = 5;
 
-    pub const Item = union(enum) {
-        /// Separates enabled flags from disabled flags, as in `im-s`.
+    pub const Item = enum {
+        // Separates enabled flags from disabled flags, as in `im-s`.
         disable_op,
-        /// A single inline flag.
-        flag: Flag,
+        // A single inline flag.
+        case_insensitive, // i
+        multi_line, // m
+        dot_matches_new_line, // s
+        swap_greed, // U
+
     };
 
     pub fn isEmpty(self: *const Flags) bool {
@@ -242,8 +241,12 @@ pub fn root(ast: Ast) Node.Index {
 }
 
 /// Return a slice of node indices from `Ast.indices`.
-pub fn indexSlice(ast: Ast, start: usize, len: usize) []Node.Index {
+pub fn indexSlice(ast: Ast, start: usize, len: usize) []const Node.Index {
     return ast.indices[start..][0..len];
+}
+
+pub fn classItems(ast: Ast, class: Class) []const Class.Item {
+    return ast.class_items[class.start..][0..class.len];
 }
 
 pub fn format(
@@ -260,7 +263,7 @@ fn formatNode(self: @This(), writer: *std.Io.Writer, index: Node.Index) std.Io.W
         .literal => |lit| try formatLiteral(writer, lit),
         .dot => try writer.printAsciiChar('.', .{}),
         .class_perl => |perl| try formatClassPerl(writer, perl),
-        .class => |cls| try formatClass(writer, cls),
+        .class => |cls| try self.formatClass(writer, cls),
         .group => |group| {
             try writer.printAsciiChar('(', .{});
             switch (group.kind) {
@@ -324,28 +327,22 @@ fn formatNode(self: @This(), writer: *std.Io.Writer, index: Node.Index) std.Io.W
     }
 }
 
-fn formatFlag(writer: *std.Io.Writer, flag: Flag) std.Io.Writer.Error!void {
-    try writer.writeAll(switch (flag) {
-        .case_insensitive => "i",
-        .multi_line => "m",
-        .dot_matches_new_line => "s",
-        .swap_greed => "U",
-    });
-}
-
 fn formatFlags(writer: *std.Io.Writer, flags: Flags) !void {
-    for (flags.slice()) |op| {
-        switch (op) {
-            .disable_op => try writer.writeAll("-"),
-            .flag => |flag| try formatFlag(writer, flag),
-        }
+    for (flags.slice()) |item| {
+        try writer.writeAll(switch (item) {
+            .case_insensitive => "i",
+            .multi_line => "m",
+            .dot_matches_new_line => "s",
+            .swap_greed => "U",
+            .disable_op => "-",
+        });
     }
 }
 
-fn formatClass(writer: *std.Io.Writer, class: Class) std.Io.Writer.Error!void {
+fn formatClass(self: @This(), writer: *std.Io.Writer, class: Class) std.Io.Writer.Error!void {
     try writer.printAsciiChar('[', .{});
     if (class.negated) try writer.printAsciiChar('^', .{});
-    for (class.items) |item| {
+    for (self.classItems(class)) |item| {
         switch (item) {
             .literal => |lit| try formatLiteral(writer, lit),
             .range => |range| {
@@ -382,7 +379,7 @@ fn formatLiteral(writer: *std.Io.Writer, lit: Literal) !void {
 }
 
 test "maximum Node size" {
-    const expected = 4 * @sizeOf(usize);
+    const expected = 2 * @sizeOf(usize);
     std.testing.expect(@sizeOf(Node) <= expected) catch {
         std.debug.print("Expected Node size = {d}, got {d}\n", .{ expected, @sizeOf(Node) });
         return error.TestUnexpectedResult;

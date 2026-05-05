@@ -58,6 +58,8 @@ pub fn compile(gpa: Allocator, pattern: []const u8, options: TopLevelOptions) !*
     return compiler.compileAst(&ast);
 }
 
+/// Compile a parsed AST into a Program. Compilation moves capture metadata out of `ast`
+/// into Program.
 fn compileAst(c: *Compiler, ast: *Ast) Error!*Program {
     const a = c.arena.allocator();
 
@@ -103,7 +105,7 @@ fn compileNode(c: *Compiler, ast: *const Ast, node_index: Ast.Node.Index) Error!
             return c.state(.{ .any = .{ .kind = any_kind, .out = 0 } });
         },
         .class_perl => |cl| return c.namedClass(perlRanges(cl), cl.negated),
-        .class => |cl| return c.class(cl),
+        .class => |cl| return c.class(ast, cl),
         .group => |gr| {
             const capture_index = switch (gr.kind) {
                 .numbered => |index| index,
@@ -403,9 +405,9 @@ fn namedClass(c: *Compiler, source: []const ByteRange, negated: bool) !Frag {
 
 /// Compiles a bracket class. It appends all items to Compiler.ranges, then normalizes
 /// them (the class tail segment) once at the class boundary and negates the result if necessary.
-fn class(c: *Compiler, cls: Ast.Class) !Frag {
+fn class(c: *Compiler, ast: *const Ast, cls: Ast.Class) !Frag {
     const start = c.ranges.items.len;
-    for (cls.items) |item| {
+    for (ast.classItems(cls)) |item| {
         try c.appendClassItem(item);
     }
 
@@ -473,14 +475,10 @@ fn applySyntaxFlags(c: *Compiler, flags: Ast.Flags) void {
     var flag_value = true;
     for (flags.slice()) |item| {
         switch (item) {
-            .flag => |flag| {
-                switch (flag) {
-                    .case_insensitive => opts.case_insensitive = flag_value,
-                    .multi_line => opts.multi_line = flag_value,
-                    .dot_matches_new_line => opts.dot_matches_new_line = flag_value,
-                    .swap_greed => opts.swap_greed = flag_value,
-                }
-            },
+            .case_insensitive => opts.case_insensitive = flag_value,
+            .multi_line => opts.multi_line = flag_value,
+            .dot_matches_new_line => opts.dot_matches_new_line = flag_value,
+            .swap_greed => opts.swap_greed = flag_value,
             .disable_op => flag_value = false,
         }
     }
@@ -1199,12 +1197,12 @@ const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 
-const Ast = @import("Ast.zig");
+pub const Ast = @import("Ast.zig");
 const errors = @import("errors.zig");
 const Diagnostics = errors.Diagnostics;
 const TopLevelOptions = @import("types.zig").CompileOptions;
 const SyntaxOptions = TopLevelOptions.Syntax;
-const Parser = @import("Parser.zig");
+pub const Parser = @import("Parser.zig");
 const Program = @import("Program.zig");
 const g = @import("program_graph.zig");
 const State = Program.State;
