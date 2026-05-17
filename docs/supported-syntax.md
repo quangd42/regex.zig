@@ -1,16 +1,16 @@
 # Supported Syntax
 
-This follows the layout of RE2's syntax reference, but describes the current
-`regex.zig` Pike VM surface.
+This describes the current `regex.zig` supported syntax.
 
-Support is ASCII-only today.
+The engine is byte-oriented and has some support for Unicode. See [docs/unicode.md](docs/unicode.md) for
+more details on the current Unicode behavior.
 
 ```text
 regex.zig regular expression syntax reference
 ---------------------------------------------
 
 Single characters:
-.              any byte except '\n' (or any byte when s=true)
+.              any byte except '\n' (or Unicode scalar in u mode; includes '\n' when s=true)
 [xyz]          character class
 [^xyz]         negated character class
 \d             Perl character class
@@ -73,14 +73,15 @@ Grouping:
 \k<name>       named backreference                             NOT SUPPORTED
 
 Flags:
-i              case-insensitive (ASCII-only)
+i              case-insensitive (ASCII in byte mode; Unicode simple folding with u)
 m              multi-line: «^» and «$» also match line boundaries
 s              let «.» match '\n'
 U              swap greedy/lazy defaults
+u              Unicode scalar mode
 R              CRLF mode                                       NOT SUPPORTED
 
 Flag syntax is «xyz» (set) or «-xyz» (clear) or «xy-z» (set «xy», clear «z»).
-Compile options can also set the initial defaults for i, m, s, and U.
+Compile options can also set the initial defaults for i, m, s, U, and u.
 
 Empty strings:
 ^              at beginning of text or line («m»=true)
@@ -100,11 +101,11 @@ Escape sequences:
 \r             carriage return
 \v             vertical tab (0x0B)
 \xNN           byte with hexadecimal value NN
-\x{...}        braced hex escape                               PLANNED
+\x{...}        braced hex escape
 \uNNNN         short Unicode escape                            NOT SUPPORTED
 \UNNNNNNNN     long Unicode escape                             NOT SUPPORTED
-\NNN           octal escape                                    PLANNED
-\Q...\E        literal mode                                    PLANNED
+\NNN           octal escape                                    NOT SUPPORTED
+\Q...\E        literal mode                                    NOT SUPPORTED
 
 Escaped literals:
 \\             backslash
@@ -114,8 +115,8 @@ Escaped literals:
 \# \& \- \~    escaped literals
 
 Character class elements:
-x              single literal byte
-A-Z            byte range (inclusive)
+x              single literal byte (or Unicode scalar in u mode)
+A-Z            byte range (or Unicode scalar range in u mode), inclusive
 \d             Perl character class
 [:foo:]        ASCII character class «foo»
 [:^foo:]       negated ASCII character class «foo»
@@ -129,7 +130,7 @@ A-Z            byte range (inclusive)
 [^\s]          not whitespace (== \S)
 [\b]           backspace / word-boundary class item            NOT SUPPORTED
 
-Perl character classes (all ASCII-only):
+Perl character classes (ASCII):
 \d             digits (== [0-9])
 \D             not digits (== [^0-9])
 \s             whitespace (== [\t\n\v\f\r ])
@@ -139,7 +140,7 @@ Perl character classes (all ASCII-only):
 \h             horizontal space                                NOT SUPPORTED
 \H             not horizontal space                            NOT SUPPORTED
 
-ASCII character classes:
+ASCII (POSIX) character classes:
 [[:alnum:]]    alphanumeric (== [0-9A-Za-z])
 [[:alpha:]]    alphabetic (== [A-Za-z])
 [[:ascii:]]    ASCII (== [\x00-\x7F])

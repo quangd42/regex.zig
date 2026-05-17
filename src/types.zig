@@ -18,7 +18,7 @@ pub const CompileOptions = struct {
     /// Initial syntax flags for the regex. Equivalent to leading flags e.g. `(?imsU)`.
     /// Inline flags override these defaults.
     pub const Syntax = struct {
-        /// `i`: match ASCII letters case-insensitively.
+        /// `i`: match case-insensitively. Uses ASCII folding unless `u` is enabled.
         case_insensitive: bool = false,
         /// `m`: make `^` and `$` match line boundaries as well as text boundaries.
         multi_line: bool = false,
@@ -33,7 +33,7 @@ pub const CompileOptions = struct {
     /// Limits used to guard compilation work and program size.
     pub const Limits = struct {
         /// Maximum decimal repetition value accepted by the parser, to avoid pathological
-        /// NFA growth. Default is 1000, following the RE2 family (Go, Rust).
+        /// NFA growth. Default is 1000.
         max_repeat: u16 = 1000,
 
         /// Maximum number of NFA states produced by the compiler.

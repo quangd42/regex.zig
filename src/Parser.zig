@@ -1066,6 +1066,13 @@ test "parse errors" {
             .end = 4,
         },
         .{
+            .pattern = "(?i--s)",
+            .tag = .flag_disable_op_duplicated,
+            .start = 4,
+            .end = 5,
+            .aux_span = .{ .start = 3, .end = 4 },
+        },
+        .{
             .pattern = "(?ii)",
             .tag = .flag_duplicated,
             .start = 3,

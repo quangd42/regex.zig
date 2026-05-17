@@ -140,6 +140,55 @@ pub fn RangeSet(kind: Kind) type {
             self.canonical = false;
         }
 
+        /// Appends `range` and its simple case fold equivalents.
+        pub fn appendFolded(self: *Self, gpa: Allocator, range: T) !void {
+            switch (kind) {
+                .byte => {
+                    try self.append(gpa, range);
+                    try range.appendAsciiFold(gpa, self);
+                },
+                .utf8_scalar => {
+                    self.canonicalize();
+                    const prefix_len = self.ranges.items.len;
+                    if (self.prefixContains(prefix_len, range)) return;
+
+                    try self.append(gpa, range);
+
+                    var cursor = prefix_len;
+                    while (cursor < self.ranges.items.len) : (cursor += 1) {
+                        const current = self.ranges.items[cursor];
+                        var it = case_fold.Iterator.init(.init(current.from, current.to));
+                        while (it.next()) |folded| {
+                            if (!self.suffixContains(prefix_len, folded)) {
+                                try self.append(gpa, folded);
+                            }
+                        }
+                    }
+                },
+            }
+        }
+
+        /// Returns true when canonical prefix `items[0..prefix_len]` fully contains `range`.
+        fn prefixContains(self: *const Self, prefix_len: usize, range: T) bool {
+            const prefix = self.ranges.items[0..prefix_len];
+            const index = std.sort.binarySearch(T, prefix, range.from, orderValueToRange) orelse return false;
+            return range.to <= prefix[index].to;
+        }
+
+        /// Returns true when any appended suffix range fully contains `range`.
+        fn suffixContains(self: *const Self, prefix_len: usize, range: T) bool {
+            for (self.ranges.items[prefix_len..]) |candidate| {
+                if (candidate.from <= range.from and range.to <= candidate.to) return true;
+            }
+            return false;
+        }
+
+        fn orderValueToRange(value: kind.Value(), range: T) std.math.Order {
+            if (value < range.from) return .lt;
+            if (value > range.to) return .gt;
+            return .eq;
+        }
+
         /// Canonicalizes and returns the set ranges.
         ///
         /// The returned slice is valid until the next mutation or `clear`.
@@ -325,14 +374,10 @@ pub fn ClassBuilder(kind: Kind) type {
         /// Appends `range` to the main set, optionally adding simple case-fold
         /// equivalents before any later negation.
         pub fn appendRange(self: *Self, gpa: Allocator, range: T, fold: bool) !void {
-            try self.set.append(gpa, range);
-            if (fold) try appendFoldedRanges(gpa, &self.set, range);
-        }
-
-        fn appendFoldedRanges(gpa: Allocator, dest: *RangeSet(kind), range: T) Allocator.Error!void {
-            switch (kind) {
-                .byte => try range.appendAsciiFold(gpa, dest),
-                .utf8_scalar => try case_fold.appendSimpleFold(gpa, dest, range),
+            if (fold) {
+                try self.set.appendFolded(gpa, range);
+            } else {
+                try self.set.append(gpa, range);
             }
         }
 
@@ -384,8 +429,11 @@ pub fn ClassBuilder(kind: Kind) type {
             self.tmp.clear();
             for (ranges) |r| {
                 const converted: T = .fromBytes(r.from, r.to);
-                try self.tmp.append(gpa, converted);
-                if (fold) try appendFoldedRanges(gpa, &self.tmp, converted);
+                if (fold) {
+                    try self.tmp.appendFolded(gpa, converted);
+                } else {
+                    try self.tmp.append(gpa, converted);
+                }
             }
             try self.tmp.negate(gpa);
             try self.set.appendSlice(gpa, self.tmp.slice());
@@ -492,9 +540,50 @@ test "ClassBuilder.appendByteRanges folds before local negation" {
     });
 }
 
+test "ClassBuilder.appendRange emits Unicode simple fold closure" {
+    const a = testing.allocator;
+    var builder: ScalarClassBuilder = .empty;
+    defer builder.deinit(a);
+
+    try builder.appendRange(a, .init('J', 'L'), true);
+
+    try expectRanges(.utf8_scalar, builder.slice(), &.{
+        .init('J', 'L'),
+        .init('j', 'l'),
+        .init(0x212a, 0x212a),
+    });
+}
+
+test "ClassBuilder.appendRange uses canonical prefix to skip closed folds" {
+    const a = testing.allocator;
+    var builder: ScalarClassBuilder = .empty;
+    defer builder.deinit(a);
+
+    try builder.appendRange(a, .init('K', 'K'), true);
+    try builder.appendRange(a, .init('K', 'K'), true);
+
+    try expectRanges(.utf8_scalar, builder.slice(), &.{
+        .init('K', 'K'),
+        .init('k', 'k'),
+        .init(0x212a, 0x212a),
+    });
+}
+
+test "ClassBuilder.appendRange folds even odd table entries" {
+    const a = testing.allocator;
+    var builder: ScalarClassBuilder = .empty;
+    defer builder.deinit(a);
+
+    try builder.appendRange(a, .init(0x0100, 0x0100), true);
+
+    try expectRanges(.utf8_scalar, builder.slice(), &.{
+        .init(0x0100, 0x0101),
+    });
+}
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const Ast = @import("../Ast.zig");
 const ascii_class = @import("ascii_class.zig");
-const case_fold = @import("case_fold.zig");
+const case_fold = @import("unicode.zig").case_fold;

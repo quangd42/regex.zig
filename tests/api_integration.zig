@@ -451,9 +451,10 @@ test "ignore case option" {
         try expect(!re.match("ab"));
     }
     {
-        var re = try Regex.compile(gpa, "\\A[[:upper:]]+\\z", .{ .syntax = .{ .case_insensitive = true } });
+        var re = try Regex.compile(gpa, "(?iu)\\A[[:upper:]]+\\z", .{});
         defer re.deinit();
         try expect(re.match("ab"));
+        try expect(re.match("K"));
     }
 }
 
@@ -483,6 +484,12 @@ test "unicode simple case folding" {
         try expect(re.match("Σ"));
         try expect(re.match("σ"));
         try expect(re.match("ς"));
+    }
+    {
+        var re = try Regex.compile(gpa, "(?iu)\\A꟎\\z", .{});
+        defer re.deinit();
+        try expect(re.match("꟎"));
+        try expect(re.match("꟏"));
     }
     {
         var re = try Regex.compile(gpa, "(?iu)\\A[^k]\\z", .{});

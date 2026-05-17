@@ -9,6 +9,8 @@ bin/
 !bin/.gitkeep
 
 /tools/bench/
+/src/Compiler/unicode/ucd/
+**/__pycache__/
 
 # Ignore any .o or .h files generated during build
 *.o

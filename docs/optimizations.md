@@ -1,7 +1,7 @@
 # Optimizations
 
-The followings are optimizations that were naturally adopted on the first-pass implementation, or are part of what enables
-RE2 family's linear time matching guarantee.
+The followings are optimizations that were naturally adopted on the first-pass implementation, or are part of the core
+algorithm that enables linear time matching guarantee.
 
 ## Compile Time
 
@@ -20,4 +20,3 @@ RE2 family's linear time matching guarantee.
 ## Future explorations
 
 - Parsing: Instead of keeping track span for error reporting in the main path, re parse to report errors.
-- Parsing: Eliminate individual slices?
