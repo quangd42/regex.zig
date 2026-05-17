@@ -66,6 +66,18 @@ test "captures" {
     try expectEqual(null, copied[2]);
 }
 
+test "captures keep fallback match after higher-priority branch dies" {
+    var re = try Regex.compile(gpa, "(?:abc(?:p|q)z|(a))", .{});
+    defer re.deinit();
+
+    // The fallback `(a)` is found before the higher-priority `abc(?:p|q)z`
+    // branch dies later at `y`; its slots must remain usable until search returns.
+    const caps = re.findCaptures("abcpy") orelse return error.TestUnexpectedResult;
+    try expectEqual(2, caps.len());
+    try expectEqual(Match{ .start = 0, .end = 1 }, caps.get(0).?);
+    try expectEqual(Match{ .start = 0, .end = 1 }, caps.get(1).?);
+}
+
 test "find*In with search window" {
     var re = try Regex.compile(gpa, "(ab)", .{});
     defer re.deinit();

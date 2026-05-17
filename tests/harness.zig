@@ -175,13 +175,13 @@ const CaseRunner = struct {
             try engine.prog.dump(r.w);
         }
 
-        try r.checkMatch(backend, r.tc.expected.hasMatch(), engine.match(input));
+        try r.checkMatch(backend, r.tc.expected.hasMatch(), engine.search(.presence, input) != null);
         switch (r.tc.expected) {
-            .span => |expected| try r.checkFind(backend, expected, engine.find(input)),
+            .span => |expected| try r.checkFind(backend, expected, engine.search(.span, input)),
             .captures => |expected| {
-                try r.checkFind(backend, expected[0], engine.find(input));
+                try r.checkFind(backend, expected[0], engine.search(.span, input));
                 switch (backend.captureCap()) {
-                    .full => try r.checkCaptures(backend, expected, engine.findCaptures(input)),
+                    .full => try r.checkCaptures(backend, expected, engine.search(.captures, input)),
                     .bounds_only => {},
                 }
             },
@@ -247,7 +247,7 @@ const CaseRunner = struct {
         engine: *backend.Engine(),
         input: Input,
     ) !void {
-        var iter = iterator.Iterator(.match, backend.Engine()).init(engine, input);
+        var iter = iterator.Iterator(.span, backend.Engine()).init(engine, input);
 
         for (expected, 0..) |span, i| {
             const expected_match = toMatch(span).?;

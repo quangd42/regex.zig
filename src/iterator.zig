@@ -2,28 +2,22 @@ const std = @import("std");
 const types = @import("types.zig");
 const Input = types.Input;
 const Match = types.Match;
-const Captures = types.Captures;
+const SearchMode = @import("Engine.zig").SearchMode;
 
-pub const IterKind = enum { match, captures };
-
-pub fn Iterator(comptime kind: IterKind, comptime Engine: type) type {
-    const method_name = switch (kind) {
-        .match => "find",
-        .captures => "findCaptures",
-    };
-    if (!std.meta.hasMethod(Engine, method_name)) {
+pub fn Iterator(comptime mode: SearchMode, comptime Engine: type) type {
+    if (mode == .presence) {
+        @compileError("Iterator(.presence, ...) is invalid; use .span or .captures");
+    }
+    if (!std.meta.hasMethod(Engine, "search")) {
         @compileError(std.fmt.comptimePrint(
-            "Iterator(.{s}, {s}) requires `{s}` to define method named `{s}`",
-            .{ @tagName(kind), @typeName(Engine), @typeName(Engine), method_name },
+            "Iterator(.{s}, {s}) requires `{s}` to define method named `search`",
+            .{ @tagName(mode), @typeName(Engine), @typeName(Engine) },
         ));
     }
     return struct {
         const Iter = @This();
 
-        pub const Result = switch (kind) {
-            .match => Match,
-            .captures => Captures,
-        };
+        pub const Result = mode.Result();
 
         engine: *Engine,
         input: Input,
@@ -38,14 +32,12 @@ pub fn Iterator(comptime kind: IterKind, comptime Engine: type) type {
 
         pub fn next(iter: *Iter) ?Result {
             while (iter.input.start <= iter.input.end) {
-                const result: Result = switch (kind) {
-                    .match => iter.engine.find(iter.input),
-                    .captures => iter.engine.findCaptures(iter.input),
-                } orelse return null;
+                const result: Result = iter.engine.search(mode, iter.input) orelse return null;
 
-                const span: Match = switch (kind) {
-                    .match => result,
+                const span: Match = switch (mode) {
+                    .span => result,
                     .captures => result.span(),
+                    .presence => unreachable,
                 };
 
                 // When an empty match overlaps with the end of the previous

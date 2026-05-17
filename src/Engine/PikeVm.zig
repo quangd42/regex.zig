@@ -1,4 +1,4 @@
-//! PikeVm engine implementation for Thompson-style NFA programs. Public API mirrors `src/Regex.zig`.
+//! PikeVm engine implementation for Thompson-style NFA programs.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -8,11 +8,10 @@ const Program = @import("../Program.zig");
 const StateId = Program.StateId;
 const Offset = Program.Offset;
 const types = @import("../types.zig");
-const Match = types.Match;
-const Captures = types.Captures;
 const assertion = @import("assertion.zig");
 const GenerationSet = @import("generation_set.zig").GenerationSet;
-const Input = @import("../types.zig").Input;
+const SearchMode = @import("../Engine.zig").SearchMode;
+const Input = types.Input;
 const SparseSet = @import("SparseSet.zig");
 
 const Vm = @This();
@@ -45,55 +44,29 @@ pub fn deinit(vm: *Vm) void {
     vm.arena.deinit();
 }
 
-pub fn match(vm: *Vm, input: Input) bool {
-    return vm.search(.none, input) != null;
-}
-
-pub fn find(vm: *Vm, input: Input) ?Match {
-    const slots = vm.search(.bounds, input) orelse return null;
-    assert(slots.len == 2);
-    const start = slots[0].?;
-    const end = slots[1].?;
-    assert(start >= input.start and end <= input.end);
-    return .{ .start = start, .end = end };
-}
-
-pub fn findCaptures(vm: *Vm, input: Input) ?Captures {
-    const slots = vm.search(.full, input) orelse return null;
-    return .{ .slots = slots, .info = &vm.prog.capture_info };
-}
-
-/// Controls how much capture slot work is done during a search.
-/// - `none`: no slot operations - for `match()`.
-/// - `bounds`: track only slots 0-1, i.e. group 0 match - for `find()`.
-/// - `full`: track all slots - for `findCaptures()`.
-const Mode = enum { none, bounds, full };
-
 /// The main matching loop.
-/// Performs capture slot work according to the given `mode` and returns whether
-/// a left-most match was found.
-///
-/// In `.none` mode, any non-null result is only a success token and does not
-/// carry meaningful slot data.
-fn search(vm: *Vm, comptime mode: Mode, input: Input) ?[]const ?Offset {
+/// Performs capture slot work according to the given `mode` and returns the
+/// according value for the left-most match.
+pub fn search(vm: *Vm, comptime mode: SearchMode, input: Input) ?mode.Result() {
     vm.current_states.clear();
     vm.next_states.clear();
+    @memset(vm.scratchSlots(mode), null);
 
     const start = vm.literalPrefixOffset(input) orelse return null;
     vm.seedStartState(mode, start, input);
 
-    var slots_for_match: ?[]const ?Offset = null;
+    var match_result: ?mode.Result() = null;
     for (input.haystack[start..input.end], start..) |c, i| {
         const offset: Offset = @intCast(i);
         // vm.next_states are threads ready to consume input at offset
         if (vm.next_states.len() > 0) {
             if (vm.step(mode, c, offset, input)) |slots| {
-                slots_for_match = slots;
-                if (mode == .none) break;
+                match_result = vm.matchValue(mode, input, slots);
+                if (mode == .presence) break;
             }
         }
         // vm.next_states are now threads for input at offset + 1
-        if (slots_for_match == null and !input.anchored) {
+        if (match_result == null and !input.anchored) {
             // In unanchored mode, if there is no match yet, we reseed at each byte,
             // to continue looking for a match later in input. This effectively
             // rewrites compiled `pattern` into `.*pattern`, and allows assertions
@@ -104,9 +77,54 @@ fn search(vm: *Vm, comptime mode: Mode, input: Input) ?[]const ?Offset {
             // finished as soon as all thread dies, no reseed.
             break;
         }
-    } else if (vm.hasMatch(mode)) |slots| slots_for_match = slots;
+    } else if (vm.hasMatch(mode)) |slots| {
+        match_result = vm.matchValue(mode, input, slots);
+    }
 
-    return slots_for_match;
+    return match_result;
+}
+
+fn scratchSlots(vm: *Vm, comptime mode: SearchMode) []?Offset {
+    return switch (mode) {
+        .presence => vm.scratch_slots[0..0],
+        .span => vm.scratch_slots[0..2],
+        .captures => vm.scratch_slots,
+    };
+}
+
+fn seedStartState(vm: *Vm, comptime mode: SearchMode, at: Offset, input: Input) void {
+    vm.epsilonClosure(mode, 0, at, input, vm.scratchSlots(mode));
+}
+
+/// Returns the capture slot row for a match state already present in next_states.
+fn hasMatch(vm: *Vm, comptime mode: SearchMode) ?[]const ?Offset {
+    for (vm.next_states.slice()) |id| {
+        switch (vm.prog.states[id]) {
+            .match => return vm.next_states.slotsFor(mode, id),
+            else => {},
+        }
+    }
+    return null;
+}
+
+fn matchValue(vm: *Vm, comptime mode: SearchMode, input: Input, slots: []const ?Offset) mode.Result() {
+    switch (mode) {
+        .presence => return,
+        .span => {
+            assert(slots.len == 2);
+            const start = slots[0].?;
+            const end = slots[1].?;
+            assert(start >= input.start and end <= input.end);
+            return .{ .start = start, .end = end };
+        },
+        .captures => {
+            assert(slots.len == vm.scratch_slots.len);
+            // A candidate can be kept while higher-priority threads continue.
+            // Snapshot it before thread-list slot storage is reused.
+            @memcpy(vm.scratch_slots, slots);
+            return .{ .slots = vm.scratch_slots, .info = &vm.prog.capture_info };
+        },
+    }
 }
 
 /// Returns 0 if there is no literal prefix in the regex pattern.
@@ -126,7 +144,7 @@ fn literalPrefixOffset(vm: *Vm, input: Input) ?Offset {
 /// adding matcher states into `next_states`.
 fn epsilonClosure(
     vm: *Vm,
-    comptime mode: Mode,
+    comptime mode: SearchMode,
     start: StateId,
     at: Offset,
     input: Input,
@@ -147,7 +165,7 @@ fn epsilonClosure(
 /// alternation ordering before queuing matcher states.
 fn explore(
     vm: *Vm,
-    comptime mode: Mode,
+    comptime mode: SearchMode,
     start: StateId,
     at: Offset,
     input: Input,
@@ -172,9 +190,9 @@ fn explore(
             .capture => |s| {
                 id = s.out;
                 switch (mode) {
-                    .none => {},
-                    .bounds, .full => {
-                        if (mode == .bounds and s.slot >= 2) continue;
+                    .presence => {},
+                    .span, .captures => {
+                        if (mode == .span and s.slot >= 2) continue;
                         vm.stack.push(.{
                             .restore = .{ .slot = s.slot, .offset = slots[s.slot] },
                         });
@@ -204,8 +222,8 @@ fn explore(
 }
 
 /// Advances all active threads by one byte.
-/// Returns the winning slot snapshot when a match state is reached.
-fn step(vm: *Vm, comptime mode: Mode, target: u8, at: Offset, input: Input) ?[]const ?Offset {
+/// Returns the capture slot row when a match state is reached.
+fn step(vm: *Vm, comptime mode: SearchMode, target: u8, at: Offset, input: Input) ?[]const ?Offset {
     vm.current_states.clear();
     std.mem.swap(ThreadList, &vm.current_states, &vm.next_states);
     for (vm.current_states.slice()) |id| {
@@ -242,26 +260,6 @@ fn step(vm: *Vm, comptime mode: Mode, target: u8, at: Offset, input: Input) ?[]c
                 // an empty match.
                 return slots;
             },
-        }
-    }
-    return null;
-}
-
-fn seedStartState(vm: *Vm, comptime mode: Mode, at: Offset, input: Input) void {
-    const scratch_slots = switch (mode) {
-        .none => vm.scratch_slots[0..0],
-        .bounds => vm.scratch_slots[0..2],
-        .full => vm.scratch_slots,
-    };
-    vm.epsilonClosure(mode, 0, at, input, scratch_slots);
-}
-
-/// Returns the slot snapshot for a match state already present in next_states.
-fn hasMatch(vm: *Vm, comptime mode: Mode) ?[]const ?Offset {
-    for (vm.next_states.slice()) |id| {
-        switch (vm.prog.states[id]) {
-            .match => return vm.next_states.slotsFor(mode, id),
-            else => {},
         }
     }
     return null;
@@ -319,7 +317,7 @@ const ThreadList = struct {
         };
     }
 
-    fn add(l: *ThreadList, comptime mode: Mode, id: StateId, slots: []const ?Offset) void {
+    fn add(l: *ThreadList, comptime mode: SearchMode, id: StateId, slots: []const ?Offset) void {
         if (!l.set.add(id)) return;
         @memcpy(l.slotsFor(mode, id), slots);
     }
@@ -328,13 +326,13 @@ const ThreadList = struct {
     /// i.e. `id` is assumed to be a member of the set.
     ///
     /// Returns a mutable slice of optional offsets for caller to modify the capture slots of `id`.
-    fn slotsFor(l: *ThreadList, comptime mode: Mode, id: StateId) []?Offset {
+    fn slotsFor(l: *ThreadList, comptime mode: SearchMode, id: StateId) []?Offset {
         assert(l.set.contains(id));
         const dense_id = l.set.sparse[id];
         const slot_count = switch (mode) {
-            .none => 0,
-            .bounds => 2,
-            .full => l.slot_count,
+            .presence => 0,
+            .span => 2,
+            .captures => l.slot_count,
         };
         return l.slots[dense_id * l.slot_count ..][0..slot_count];
     }

@@ -22,14 +22,26 @@ pub fn deinit(engine: *Engine) void {
     engine.pikevm.deinit();
 }
 
-pub fn match(engine: *Engine, input: Input) bool {
-    return engine.pikevm.match(input);
+pub fn search(engine: *Engine, comptime mode: SearchMode, input: Input) ?mode.Result() {
+    return engine.pikevm.search(mode, input);
 }
 
-pub fn find(engine: *Engine, input: Input) ?Match {
-    return engine.pikevm.find(input);
-}
+/// SearchMode indicates the amount of capturing group data a search must produce.
+///
+/// Callers can use this to pick the cheapest matching strategy for their needs.
+pub const SearchMode = enum {
+    /// Only report whether a match is present.
+    presence,
+    /// Report the span of the full match.
+    span,
+    /// Report the full capture group list.
+    captures,
 
-pub fn findCaptures(engine: *Engine, input: Input) ?Captures {
-    return engine.pikevm.findCaptures(input);
-}
+    pub fn Result(comptime mode: SearchMode) type {
+        return switch (mode) {
+            .presence => void,
+            .span => Match,
+            .captures => Captures,
+        };
+    }
+};

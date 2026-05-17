@@ -43,7 +43,7 @@ pub fn match(re: *Regex, haystack: []const u8) bool {
 
 /// Perform matching using the given search input configuration.
 pub fn matchIn(re: *Regex, input: Input) bool {
-    return re.engine.match(input);
+    return re.engine.search(.presence, input) != null;
 }
 
 /// Return the start and end indices of the left-most match in the haystack.
@@ -59,7 +59,7 @@ pub fn find(re: *Regex, haystack: []const u8) ?Match {
 /// Return the start and end indices of the left-most match for the given search input
 /// configuration.
 pub fn findIn(re: *Regex, input: Input) ?Match {
-    return re.engine.find(input);
+    return re.engine.search(.span, input);
 }
 
 /// Search for a match and return capture groups of the left-most match in the haystack.
@@ -81,12 +81,12 @@ pub fn findCaptures(re: *Regex, haystack: []const u8) ?Captures {
 
 /// Search for capture groups using the given search input configuration.
 pub fn findCapturesIn(re: *Regex, input: Input) ?Captures {
-    return re.engine.findCaptures(input);
+    return re.engine.search(.captures, input);
 }
 
 /// Iterator over successive non-overlapping matches.
 /// See `findAll` and `findAllIn`.
-pub const MatchIterator = iterator.Iterator(.match, Engine);
+pub const MatchIterator = iterator.Iterator(.span, Engine);
 
 /// Iterator over successive non-overlapping matches with capture group data.
 /// Each yielded `Captures` is invalidated by the next `next()` call. Use
