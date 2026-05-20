@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Open a discussion
+    about: Ask questions, discuss design, or explore ideas before filing an issue.
+    url: https://github.com/quangd42/regex.zig/discussions/new
