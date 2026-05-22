@@ -133,8 +133,8 @@ fn matchValue(vm: *Vm, comptime mode: SearchMode, input: Input, slots: []const ?
 fn literalPrefixOffset(vm: *Vm, input: Input) ?Offset {
     if (input.anchored) return @intCast(input.start);
     const i: usize = if (vm.prog.literalPrefix()) |byte|
-        // NOTE: indexOfScalar() already uses simd?
-        std.mem.indexOfScalar(u8, input.haystack[input.start..input.end], byte) orelse return null
+        // NOTE: findScalar() already uses simd?
+        std.mem.findScalar(u8, input.haystack[input.start..input.end], byte) orelse return null
     else
         0;
     return @intCast(input.start + i);

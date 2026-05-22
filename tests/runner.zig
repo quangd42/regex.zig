@@ -13,18 +13,10 @@ const suites = [_]harness.Suite{
     @import("fowler/nullsubexpr.zig").suite,
 };
 
-pub fn main() void {
-    var arg_buffer: [1024]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&arg_buffer);
-    const parsed = parseArgs(fba.allocator()) catch |err| switch (err) {
-        error.InvalidArgument, error.MissingArgumentValue => {
-            std.debug.print("invalid test runner arguments\n", .{});
-            std.process.exit(1);
-        },
-        else => {
-            std.debug.print("test runner error: {s}\n", .{@errorName(err)});
-            std.process.exit(1);
-        },
+pub fn main(init: std.process.Init) void {
+    const parsed = parseArgs(init) catch {
+        std.debug.print("invalid test runner arguments\n", .{});
+        std.process.exit(1);
     };
 
     var summary: Summary = .{};
@@ -42,7 +34,7 @@ pub fn main() void {
         for (suite.cases) |tc| {
             if (!filter.matches(suite.name, tc.name)) continue;
             matched_case = true;
-            runOne(suite, tc, options, &summary);
+            runOne(init.io, suite, tc, options, &summary);
         }
     }
 
@@ -59,15 +51,13 @@ pub fn main() void {
     if (summary.failed != 0) std.process.exit(1);
 }
 
-fn parseArgs(gpa: mem.Allocator) !ParsedArgs {
-    const args = try std.process.argsAlloc(gpa);
-    // Keep the argv allocation alive for the duration of the run so
-    // `ParsedArgs.case_name` can use it.
+fn parseArgs(init: std.process.Init) !ParsedArgs {
+    var it = try init.minimal.args.iterateAllocator(init.arena.allocator());
+    const skipped = it.skip();
+    std.debug.assert(skipped);
 
     var parsed: ParsedArgs = .{};
-    var i: usize = 1;
-    while (i < args.len) : (i += 1) {
-        const arg = args[i];
+    while (it.next()) |arg| {
         if (mem.eql(u8, arg, "--trace")) {
             parsed.trace = true;
             continue;
@@ -76,11 +66,11 @@ fn parseArgs(gpa: mem.Allocator) !ParsedArgs {
             parsed.verbose = true;
             continue;
         }
-        if (try readCaseName(args, &i, "--case")) |value| {
+        if (try readCaseName(&it, arg, "--case")) |value| {
             parsed.case_name = value;
             continue;
         }
-        if (try readCaseName(args, &i, "--contains")) |value| {
+        if (try readCaseName(&it, arg, "--contains")) |value| {
             parsed.contains = value;
             continue;
         }
@@ -90,13 +80,11 @@ fn parseArgs(gpa: mem.Allocator) !ParsedArgs {
     return parsed;
 }
 
-fn readCaseName(args: []const [:0]u8, i: *usize, comptime name: []const u8) !?[]const u8 {
-    const arg = args[i.*];
+fn readCaseName(it: *std.process.Args.Iterator, arg: [:0]const u8, comptime name: []const u8) !?[]const u8 {
     if (mem.eql(u8, arg, name)) {
-        i.* += 1;
-        if (i.* >= args.len) return error.MissingArgumentValue;
-        if (args[i.*].len == 0) return error.InvalidArgument;
-        return args[i.*];
+        const out = it.next() orelse return error.MissingArgumentValue;
+        if (out.len == 0) return error.InvalidArgument;
+        return out;
     }
 
     const prefix = name ++ "=";
@@ -110,15 +98,16 @@ fn readCaseName(args: []const [:0]u8, i: *usize, comptime name: []const u8) !?[]
 }
 
 fn runOne(
+    io: std.Io,
     suite: harness.Suite,
     tc: harness.Case,
     options: harness.Options,
     summary: *Summary,
 ) void {
-    var gpa_state: std.heap.GeneralPurposeAllocator(.{}) = .init;
+    var gpa_state: std.heap.DebugAllocator(.{}) = .init;
     const gpa = gpa_state.allocator();
     var stderr_buf: [4096]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buf);
+    var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buf);
     const stderr = &stderr_writer.interface;
 
     var failed = false;
@@ -127,9 +116,7 @@ fn runOne(
         stderr.flush() catch {};
         failed = true;
         std.debug.print("FAIL {s}/{s} ({s})\n", .{ suite.name, tc.name, @errorName(err) });
-        if (@errorReturnTrace()) |stack_trace| {
-            std.debug.dumpStackTrace(stack_trace.*);
-        }
+        std.debug.dumpCurrentStackTrace(.{});
     };
     stderr.flush() catch {};
 
@@ -171,10 +158,7 @@ const CaseFilter = struct {
             return matchesExact(exact, suite_name, case_name);
         }
         if (f.contains) |needle| {
-            return containsName(needle, suite_name, case_name) catch |err| {
-                std.debug.print("test runner error: {s}\n", .{@errorName(err)});
-                std.process.exit(1);
-            };
+            return containsName(needle, suite_name, case_name);
         }
         return true;
     }
@@ -190,20 +174,31 @@ const CaseFilter = struct {
     fn matchesExact(exact: []const u8, suite_name: []const u8, case_name: []const u8) bool {
         if (mem.eql(u8, exact, case_name)) return true;
 
-        const slash = mem.lastIndexOfScalar(u8, exact, '/') orelse return false;
+        const slash = mem.findScalarLast(u8, exact, '/') orelse return false;
         return mem.eql(u8, exact[0..slash], suite_name) and
             mem.eql(u8, exact[slash + 1 ..], case_name);
     }
 
-    fn containsName(needle: []const u8, suite_name: []const u8, case_name: []const u8) !bool {
-        var buf: [256]u8 = undefined;
-        const full_len = suite_name.len + 1 + case_name.len;
-        if (full_len > buf.len) return error.TestNameTooLong;
+    fn containsName(needle: []const u8, suite_name: []const u8, case_name: []const u8) bool {
+        if (needle.len == 0) return true;
 
-        @memcpy(buf[0..suite_name.len], suite_name);
-        buf[suite_name.len] = '/';
-        @memcpy(buf[suite_name.len + 1 .. full_len], case_name);
+        if (mem.find(u8, suite_name, needle) != null) return true;
+        if (mem.find(u8, case_name, needle) != null) return true;
 
-        return mem.containsAtLeast(u8, buf[0..full_len], 1, needle);
+        var pos: usize = 0;
+        while (mem.findScalarPos(u8, needle, pos, '/')) |slash| {
+            const left = needle[0..slash];
+            const right = needle[slash + 1 ..];
+
+            if (mem.endsWith(u8, suite_name, left) and
+                mem.startsWith(u8, case_name, right))
+            {
+                return true;
+            }
+
+            pos = slash + 1;
+        }
+
+        return false;
     }
 };

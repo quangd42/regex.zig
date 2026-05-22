@@ -537,7 +537,7 @@ fn parseHex(p: *Parser) !Ast.Literal {
     const c = p.peek() orelse return p.err(.escape_at_eof);
     if (c == '{') {
         _ = p.eat();
-        const end = std.mem.indexOfScalarPos(u8, p.pattern, p.offset, '}') orelse
+        const end = std.mem.findScalarPos(u8, p.pattern, p.offset, '}') orelse
             return p.errCurrent(.escape_hex_brace_not_closed);
         const value = try p.parseHexValue(end);
         p.offset += 1; // consume '}'

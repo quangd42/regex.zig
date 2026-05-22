@@ -10,7 +10,7 @@ pub const Kind = enum {
     byte,
     utf8_scalar,
 
-    fn Value(kind: Kind) type {
+    fn Value(comptime kind: Kind) type {
         return switch (kind) {
             .byte => u8,
             .utf8_scalar => u21,
@@ -33,7 +33,7 @@ pub const Kind = enum {
 };
 
 /// Inclusive range over the domain selected by `kind`.
-pub fn Range(kind: Kind) type {
+pub fn Range(comptime kind: Kind) type {
     return struct {
         from: T,
         to: T,
@@ -111,7 +111,7 @@ pub fn Range(kind: Kind) type {
 /// callers observe sorted, non-overlapping, non-adjacent ranges.
 ///
 /// utf-8 scalar ranges are not split around surrogate values here.
-pub fn RangeSet(kind: Kind) type {
+pub fn RangeSet(comptime kind: Kind) type {
     return struct {
         const Self = @This();
         const T = Range(kind);
@@ -351,7 +351,7 @@ test "RangeSet.negate returns surrounding gaps" {
 /// The builder owns a scratch set for class negation and case folding. Appended
 /// ranges may be unsorted or overlapping. `slice` canonicalizes before returning
 /// the view used by the compiler, which may contain surrogate values.
-pub fn ClassBuilder(kind: Kind) type {
+pub fn ClassBuilder(comptime kind: Kind) type {
     return struct {
         set: RangeSet(kind) = .empty,
         tmp: RangeSet(kind) = .empty,

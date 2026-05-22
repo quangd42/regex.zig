@@ -428,7 +428,7 @@ const Backend = enum {
 
     const CaptureCap = enum { full, bounds_only };
 
-    fn Engine(self: Backend) type {
+    fn Engine(comptime self: Backend) type {
         const engine_type = switch (self) {
             .pikevm => PikeVm,
             else => @panic("not yet implemented"),
