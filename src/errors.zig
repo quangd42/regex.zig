@@ -1,3 +1,5 @@
+pub const Span = @import("types.zig").Span;
+
 pub const Diagnostics = union(enum) {
     parse: Parse,
     compile: Compile,
@@ -32,7 +34,9 @@ pub const Diagnostics = union(enum) {
 
     pub const Parse = struct {
         err: ParseError,
+        /// Byte offsets into the regex pattern.
         span: Span,
+        /// Additional byte offsets into the regex pattern, when relevant.
         aux_span: ?Span = null,
     };
 
@@ -52,15 +56,5 @@ pub const Diagnostics = union(enum) {
             .span = span,
             .aux_span = aux_span,
         } };
-    }
-};
-
-/// Byte offsets into pattern slice.
-pub const Span = struct {
-    start: usize,
-    end: usize, // exclusive
-
-    pub fn isValidFor(self: Span, input_len: usize) bool {
-        return self.start <= self.end and self.end <= input_len;
     }
 };

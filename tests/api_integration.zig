@@ -121,6 +121,193 @@ test "findAll iterator" {
     }
 }
 
+test "split iterator" {
+    const cases = [_]struct {
+        pattern: []const u8,
+        haystack: []const u8,
+        expected: []const []const u8,
+    }{
+        .{
+            .pattern = "[ \\t]+",
+            .haystack = "a b \t  c\td    e",
+            .expected = &.{ "a", "b", "c", "d", "e" },
+        },
+        .{
+            .pattern = "X",
+            .haystack = "",
+            .expected = &.{""},
+        },
+        .{
+            .pattern = "X",
+            .haystack = "abc",
+            .expected = &.{"abc"},
+        },
+        .{
+            .pattern = "X",
+            .haystack = "lionXXtigerXleopard",
+            .expected = &.{ "lion", "", "tiger", "leopard" },
+        },
+        .{
+            .pattern = "0",
+            .haystack = "010",
+            .expected = &.{ "", "1", "" },
+        },
+        .{
+            .pattern = "",
+            .haystack = "zig",
+            .expected = &.{ "", "z", "i", "g", "" },
+        },
+        .{
+            .pattern = "",
+            .haystack = "",
+            .expected = &.{ "", "" },
+        },
+        .{
+            .pattern = "",
+            .haystack = "\xE2\x98\x83",
+            .expected = &.{ "", "\xE2", "\x98", "\x83", "" },
+        },
+    };
+
+    for (cases) |tc| {
+        try expectSplit(tc.pattern, tc.haystack, tc.expected);
+    }
+}
+
+test "splitN iterator" {
+    const cases = [_]struct {
+        pattern: []const u8,
+        haystack: []const u8,
+        limit: usize,
+        expected: []const []const u8,
+    }{
+        .{
+            .pattern = ",",
+            .haystack = "a,b,c",
+            .limit = 0,
+            .expected = &[_][]const u8{},
+        },
+        .{
+            .pattern = ",",
+            .haystack = "a,b,c",
+            .limit = 1,
+            .expected = &.{"a,b,c"},
+        },
+        .{
+            .pattern = ",",
+            .haystack = "a,b,c",
+            .limit = 2,
+            .expected = &.{ "a", "b,c" },
+        },
+        .{
+            .pattern = ",",
+            .haystack = "a,b,c",
+            .limit = 3,
+            .expected = &.{ "a", "b", "c" },
+        },
+        .{
+            .pattern = ",",
+            .haystack = "a,b,c",
+            .limit = 8,
+            .expected = &.{ "a", "b", "c" },
+        },
+        .{
+            .pattern = "X",
+            .haystack = "abc",
+            .limit = 3,
+            .expected = &.{"abc"},
+        },
+        .{
+            .pattern = "X",
+            .haystack = "lionXXtigerXleopard",
+            .limit = 3,
+            .expected = &.{ "lion", "", "tigerXleopard" },
+        },
+        .{
+            .pattern = "",
+            .haystack = "zig",
+            .limit = 3,
+            .expected = &.{ "", "z", "ig" },
+        },
+        .{
+            .pattern = "",
+            .haystack = "",
+            .limit = 2,
+            .expected = &.{ "", "" },
+        },
+    };
+
+    for (cases) |tc| {
+        try expectSplitN(tc.pattern, tc.haystack, tc.limit, tc.expected);
+    }
+}
+
+test "splitIn restricts output to the input window" {
+    var re = try Regex.compile(gpa, ",", .{});
+    defer re.deinit();
+
+    const haystack = "xx,a,b,yy";
+    const input: Regex.Input = .init(haystack, .{ .start = 2, .end = 7 });
+    var iter = re.splitIn(input);
+    const expected = [_]Span{
+        .{ .start = 2, .end = 2 },
+        .{ .start = 3, .end = 4 },
+        .{ .start = 5, .end = 6 },
+        .{ .start = 7, .end = 7 },
+    };
+
+    for (expected) |span| {
+        try expectEqual(span, iter.next().?);
+    }
+    try expectEqual(null, iter.next());
+
+    var bytes = re.splitIn(input);
+    for ([_][]const u8{ "", "a", "b", "" }) |part| {
+        try expectEqualStrings(part, bytes.nextBytes().?);
+    }
+    try expectEqual(null, bytes.nextBytes());
+
+    var empty = re.splitIn(.init(haystack, .{ .start = 3, .end = 3 }));
+    try expectEqual(Span{ .start = 3, .end = 3 }, empty.next().?);
+    try expectEqual(null, empty.next());
+
+    var anchored = re.splitIn(.init(haystack, .{
+        .start = 2,
+        .end = 7,
+        .anchored = true,
+    }));
+    try expectEqual(Span{ .start = 2, .end = 2 }, anchored.next().?);
+    try expectEqual(Span{ .start = 3, .end = 7 }, anchored.next().?);
+    try expectEqual(null, anchored.next());
+}
+
+test "splitNIn limits spans within the input window" {
+    var re = try Regex.compile(gpa, ",", .{});
+    defer re.deinit();
+
+    const haystack = "xx,a,b,yy";
+    const input: Regex.Input = .init(haystack, .{ .start = 2, .end = 7 });
+    var iter: Regex.SplitNIterator = re.splitNIn(input, 2);
+    try expectEqual(Span{ .start = 2, .end = 2 }, iter.next().?);
+    try expectEqual(Span{ .start = 3, .end = 7 }, iter.next().?);
+    try expectEqual(null, iter.next());
+    try expectEqual(null, iter.next());
+
+    var bytes = re.splitNIn(input, 2);
+    try expectEqualStrings("", bytes.nextBytes().?);
+    try expectEqualStrings("a,b,", bytes.nextBytes().?);
+    try expectEqual(null, bytes.nextBytes());
+
+    var anchored = re.splitNIn(.init(haystack, .{
+        .start = 2,
+        .end = 7,
+        .anchored = true,
+    }), 3);
+    try expectEqual(Span{ .start = 2, .end = 2 }, anchored.next().?);
+    try expectEqual(Span{ .start = 3, .end = 7 }, anchored.next().?);
+    try expectEqual(null, anchored.next());
+}
+
 test "named capture metadata and lookup" {
     var re = try Regex.compile(gpa, "(?<a>.(?<b>.))(.)(?:.)(?<c>.)", .{});
     defer re.deinit();
@@ -659,6 +846,41 @@ fn expectCompileDiag(pattern: []const u8, expected: Diagnostics.Compile) !void {
         .compile => |compile_diag| try expectEqual(expected, compile_diag),
         .parse => return error.TestUnexpectedResult,
     }
+}
+
+fn expectSplit(
+    pattern: []const u8,
+    haystack: []const u8,
+    expected: []const []const u8,
+) !void {
+    var re = try Regex.compile(gpa, pattern, .{});
+    defer re.deinit();
+
+    var iter = re.split(haystack);
+    for (expected) |part| {
+        const actual = iter.nextBytes() orelse return error.TestUnexpectedResult;
+        try expectEqualStrings(part, actual);
+    }
+    try expectEqual(null, iter.next());
+    try expectEqual(null, iter.next());
+}
+
+fn expectSplitN(
+    pattern: []const u8,
+    haystack: []const u8,
+    limit: usize,
+    expected: []const []const u8,
+) !void {
+    var re = try Regex.compile(gpa, pattern, .{});
+    defer re.deinit();
+
+    var iter: Regex.SplitNIterator = re.splitN(haystack, limit);
+    for (expected) |part| {
+        const actual = iter.nextBytes() orelse return error.TestUnexpectedResult;
+        try expectEqualStrings(part, actual);
+    }
+    try expectEqual(null, iter.next());
+    try expectEqual(null, iter.next());
 }
 
 const std = @import("std");

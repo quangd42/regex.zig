@@ -131,14 +131,34 @@ pub const Input = struct {
     };
 };
 
-/// `Match` contains the half-open [start, end) indice range of the match in haystack.
+/// A half-open [start, end) byte offset range into a byte slice.
+pub const Span = struct {
+    start: usize,
+    end: usize,
+
+    /// Return the portion of `input` covered by this span.
+    pub fn bytes(s: Span, input: []const u8) []const u8 {
+        return input[s.start..s.end];
+    }
+
+    /// Return the length of the span.
+    pub fn len(s: Span) usize {
+        return s.end - s.start;
+    }
+
+    pub fn isValidFor(self: Span, input_len: usize) bool {
+        return self.start <= self.end and self.end <= input_len;
+    }
+};
+
+/// `Match` contains the half-open [start, end) byte offset range of the match in haystack.
 /// It represents the boundary of a capture group in the haystack for `Captures`. It is
 /// also the returned type of `Regex.find()`.
 pub const Match = struct {
     start: usize,
     end: usize,
 
-    /// Return a slice of `haystack` for this match.
+    /// Return the matched portion of `haystack`.
     pub fn bytes(m: Match, haystack: []const u8) []const u8 {
         return haystack[m.start..m.end];
     }

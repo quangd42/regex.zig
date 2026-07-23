@@ -5,10 +5,10 @@ const Compiler = @import("Compiler.zig");
 const Engine = @import("Engine.zig");
 const errors = @import("errors.zig");
 pub const Diagnostics = errors.Diagnostics;
-pub const Span = errors.Span;
 const Program = @import("Program.zig");
 const types = @import("types.zig");
 pub const Input = types.Input;
+pub const Span = types.Span;
 pub const CompileOptions = types.CompileOptions;
 pub const Match = types.Match;
 pub const Captures = types.Captures;
@@ -140,6 +140,50 @@ pub fn captureNames(re: *Regex) NameIterator {
 /// Useful to determine the required minimum size of buffer for `Captures.copy(dest)`.
 pub fn captureCount(re: *Regex) usize {
     return re.prog.capture_info.count;
+}
+
+/// Iterator over spans separated by successive non-overlapping matches.
+/// See `split` and `splitIn`.
+pub const SplitIterator = iterator.Split(Engine);
+
+/// Returns an iterator over spans separated by successive non-overlapping
+/// matches in the haystack.
+///
+/// Separators at either end of the haystack and adjacent separators yield
+/// empty spans. If there are no matches, the iterator yields the whole
+/// haystack once.
+pub fn split(re: *Regex, haystack: []const u8) SplitIterator {
+    return re.splitIn(.init(haystack, .{}));
+}
+
+/// Like `split`, but restricted to the given input window.
+/// Yielded spans use absolute haystack offsets and cover only the input window.
+///
+/// When `input.anchored` is true, separator searches remain anchored as the
+/// iterator advances. Splitting stops at the first position where no separator
+/// begins, and the remainder of the input window is yielded as the final span.
+pub fn splitIn(re: *Regex, input: Input) SplitIterator {
+    return .init(&re.engine, input);
+}
+
+/// Iterator over a limited number of spans separated by successive
+/// non-overlapping matches. See `splitN` and `splitNIn`.
+pub const SplitNIterator = iterator.SplitN(Engine);
+
+/// Returns an iterator over at most `limit` spans separated by successive
+/// non-overlapping matches in the haystack.
+///
+/// The final span contains the unsplit remainder. A limit of zero yields no
+/// spans, while a limit of one yields the whole haystack without searching.
+pub fn splitN(re: *Regex, haystack: []const u8, limit: usize) SplitNIterator {
+    return re.splitNIn(.init(haystack, .{}), limit);
+}
+
+/// Like `splitN`, but restricted to the given input window.
+/// Yielded spans use absolute haystack offsets and cover only the input window.
+/// The `input.anchored` behavior is the same as for `splitIn`.
+pub fn splitNIn(re: *Regex, input: Input, limit: usize) SplitNIterator {
+    return .init(&re.engine, input, limit);
 }
 
 const testing = std.testing;
@@ -326,4 +370,19 @@ test "usage: findAll iterates over all matches" {
 
         try expectEqual(null, iter.next());
     }
+}
+
+test "usage: split" {
+    const gpa = testing.allocator;
+
+    var re = try Regex.compile(gpa, "[ \\t]+", .{});
+    defer re.deinit();
+
+    const haystack = "a b \t  c";
+    var iter = re.split(haystack);
+
+    try expectEqualStrings("a", iter.next().?.bytes(haystack));
+    try expectEqualStrings("b", iter.next().?.bytes(haystack));
+    try expectEqualStrings("c", iter.next().?.bytes(haystack));
+    try expectEqual(null, iter.next());
 }

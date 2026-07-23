@@ -87,6 +87,11 @@ Use `findAll()` to iterate over the successive _non-overlapping_ match spans you
 from repeated `find()`. `findAllCaptures()` works similarly, but each match contains full
 capture data, which becomes invalid after each iteration.
 
+Use `split()` to iterate over spans separated by successive non-overlapping matches.
+Boundary and adjacent separators produce empty spans. Use `splitN()` to limit the
+number of spans; its final span contains the unsplit remainder. Both iterators also
+provide `nextBytes()` when byte slices are more convenient than offsets.
+
 If you need to configure bounds or anchoring, use the corresponding `*In` API with
 `Regex.Input`:
 
