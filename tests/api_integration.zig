@@ -121,6 +121,263 @@ test "findAll iterator" {
     }
 }
 
+test "replace writes the first match and expands captures" {
+    var re = try Regex.compile(gpa, "(?<word>[A-Za-z]+)(?:-(\\d+))?", .{});
+    defer re.deinit();
+
+    const cases = [_]struct {
+        haystack: []const u8,
+        replacement: []const u8,
+        expected: []const u8,
+    }{
+        .{
+            .haystack = "abc-42!",
+            .replacement = "[$0][$1][$2][${word}]",
+            .expected = "[abc-42][abc][42][abc]!",
+        },
+        .{
+            .haystack = "abc-42!",
+            .replacement = "${2}:$word",
+            .expected = "42:abc!",
+        },
+        // Group 2 exists but did not participate, so it expands to empty.
+        .{ .haystack = "abc!", .replacement = "<$2>", .expected = "<>!" },
+        .{ .haystack = "abc!", .replacement = "", .expected = "!" },
+        .{ .haystack = "!!abc-42?", .replacement = "X", .expected = "!!X?" },
+        // Both words match, but only the first is replaced.
+        .{ .haystack = "abc def", .replacement = "X", .expected = "X def" },
+    };
+
+    var output: std.Io.Writer.Allocating = .init(gpa);
+    defer output.deinit();
+    for (cases) |tc| {
+        output.clearRetainingCapacity();
+        try expect(try re.replace(&output.writer, tc.haystack, tc.replacement));
+        try expectEqualStrings(tc.expected, output.written());
+    }
+
+    output.clearRetainingCapacity();
+    try output.writer.writeAll("unchanged");
+    try expect(!try re.replace(&output.writer, "123", "X"));
+    try expectEqualStrings("unchanged", output.written());
+}
+
+test "replace handles capture reference edge cases" {
+    var re = try Regex.compile(gpa, "h(ell)o", .{});
+    defer re.deinit();
+
+    const cases = [_]struct {
+        replacement: []const u8,
+        expected: []const u8,
+    }{
+        .{ .replacement = "$", .expected = "$" },
+        .{ .replacement = "$$", .expected = "$" },
+        .{ .replacement = "$$1", .expected = "$1" },
+        .{ .replacement = "$$$", .expected = "$$" },
+        .{ .replacement = "$$-", .expected = "$-" },
+        .{ .replacement = "$0", .expected = "hello" },
+        .{ .replacement = "$1", .expected = "ell" },
+        .{ .replacement = "${1}", .expected = "ell" },
+        .{ .replacement = "${01}", .expected = "" },
+        .{ .replacement = "${1}x", .expected = "ellx" },
+        .{ .replacement = "$1x", .expected = "" },
+        .{ .replacement = "$2", .expected = "" },
+        .{ .replacement = "$name", .expected = "" },
+        .{ .replacement = "${name}", .expected = "" },
+        .{ .replacement = "${}", .expected = "" },
+        .{ .replacement = "$-", .expected = "$-" },
+        .{ .replacement = "$}", .expected = "$}" },
+        .{ .replacement = "${oops", .expected = "${oops" },
+        .{ .replacement = "$\xC3\xA9", .expected = "$\xC3\xA9" },
+        .{ .replacement = "a$1b", .expected = "a" },
+        .{ .replacement = "a${1}b", .expected = "aellb" },
+        .{ .replacement = "x$", .expected = "x$" },
+    };
+
+    var output: std.Io.Writer.Allocating = .init(gpa);
+    defer output.deinit();
+    for (cases) |tc| {
+        output.clearRetainingCapacity();
+        try expect(try re.replace(&output.writer, "hello", tc.replacement));
+        try expectEqualStrings(tc.expected, output.written());
+    }
+}
+
+test "replace expands multiple references and only the first match" {
+    var re = try Regex.compile(gpa, "(\\w+) (\\d+)", .{});
+    defer re.deinit();
+
+    const cases = [_]struct {
+        haystack: []const u8,
+        replacement: []const u8,
+        expected: []const u8,
+    }{
+        .{ .haystack = "July 17", .replacement = "${2}-${1}", .expected = "17-July" },
+        // The second haystack position also matches but is left untouched.
+        .{ .haystack = "July 17, 2026", .replacement = "$1", .expected = "July, 2026" },
+    };
+
+    var output: std.Io.Writer.Allocating = .init(gpa);
+    defer output.deinit();
+    for (cases) |tc| {
+        output.clearRetainingCapacity();
+        try expect(try re.replace(&output.writer, tc.haystack, tc.replacement));
+        try expectEqualStrings(tc.expected, output.written());
+    }
+}
+
+test "replace classifies numeric and named capture references" {
+    var re = try Regex.compile(
+        gpa,
+        "(a)(?<1>b)(?<1_2>c)(?<01>d)(?<1x>e)(?<65536>f)",
+        .{},
+    );
+    defer re.deinit();
+
+    const cases = [_]struct {
+        replacement: []const u8,
+        expected: []const u8,
+    }{
+        .{ .replacement = "$1", .expected = "a" },
+        .{ .replacement = "${1}", .expected = "a" },
+        .{ .replacement = "$2", .expected = "b" },
+        .{ .replacement = "$1_2", .expected = "c" },
+        .{ .replacement = "${1_2}", .expected = "c" },
+        .{ .replacement = "$01", .expected = "d" },
+        .{ .replacement = "${01}", .expected = "d" },
+        .{ .replacement = "$1x", .expected = "e" },
+        .{ .replacement = "${1x}", .expected = "e" },
+        .{ .replacement = "$65536", .expected = "" },
+        .{ .replacement = "${65536}", .expected = "" },
+    };
+
+    var output: std.Io.Writer.Allocating = .init(gpa);
+    defer output.deinit();
+    for (cases) |tc| {
+        output.clearRetainingCapacity();
+        try expect(try re.replace(&output.writer, "abcdef", tc.replacement));
+        try expectEqualStrings(tc.expected, output.written());
+    }
+}
+
+test "replaceAlloc returns an owned first replacement" {
+    var re = try Regex.compile(gpa, "(?<word>[A-Za-z]+)(?:-(\\d+))?", .{});
+    defer re.deinit();
+
+    const cases = [_]struct {
+        haystack: []const u8,
+        replacement: []const u8,
+        expected: []const u8,
+    }{
+        .{ .haystack = "abc-42!", .replacement = "$2-$1", .expected = "42-abc!" },
+        .{ .haystack = "abc!", .replacement = "X", .expected = "X!" },
+    };
+
+    for (cases) |tc| {
+        const actual = try re.replaceAlloc(gpa, tc.haystack, tc.replacement) orelse
+            return error.TestUnexpectedResult;
+        defer gpa.free(actual);
+        try expectEqualStrings(tc.expected, actual);
+    }
+
+    try expect(try re.replaceAlloc(gpa, "123", "X") == null);
+}
+
+test "replaceWith literal does not expand capture references" {
+    var re = try Regex.compile(gpa, "(abc)", .{});
+    defer re.deinit();
+
+    var output: std.Io.Writer.Allocating = .init(gpa);
+    defer output.deinit();
+    const replacer: Regex.Replacer = .{ .literal = "<$1>" };
+    try expect(try re.replaceWith(&output.writer, "!abc?abc", replacer));
+    try expectEqualStrings("!<$1>?abc", output.written());
+
+    output.clearRetainingCapacity();
+    try output.writer.writeAll("unchanged");
+    try expect(!try re.replaceWith(&output.writer, "123", .{ .literal = "X" }));
+    try expectEqualStrings("unchanged", output.written());
+}
+
+test "replaceAll expands captures for every match" {
+    var re = try Regex.compile(gpa, "(?<key>\\w+)=(?<value>\\w+)", .{});
+    defer re.deinit();
+
+    const cases = [_]struct {
+        replacement: []const u8,
+        expected: []const u8,
+    }{
+        .{ .replacement = "$value:$key", .expected = "1:a 2:b" },
+        .{ .replacement = "<$0>", .expected = "<a=1> <b=2>" },
+        .{ .replacement = "$$", .expected = "$ $" },
+        .{ .replacement = "X", .expected = "X X" },
+    };
+
+    var output: std.Io.Writer.Allocating = .init(gpa);
+    defer output.deinit();
+    for (cases) |tc| {
+        output.clearRetainingCapacity();
+        try expect(try re.replaceAll(&output.writer, "a=1 b=2", tc.replacement));
+        try expectEqualStrings(tc.expected, output.written());
+    }
+
+    const allocated = try re.replaceAllAlloc(gpa, "a=1 b=2", "$value:$key") orelse
+        return error.TestUnexpectedResult;
+    defer gpa.free(allocated);
+    try expectEqualStrings("1:a 2:b", allocated);
+
+    output.clearRetainingCapacity();
+    try output.writer.writeAll("unchanged");
+    try expect(!try re.replaceAll(&output.writer, "no assignments", "X"));
+    try expectEqualStrings("unchanged", output.written());
+    try expect(try re.replaceAllAlloc(gpa, "no assignments", "X") == null);
+
+    var empty = try Regex.compile(gpa, "", .{});
+    defer empty.deinit();
+    output.clearRetainingCapacity();
+    try expect(try empty.replaceAll(&output.writer, "ab", "<$0>"));
+    try expectEqualStrings("<>a<>b<>", output.written());
+}
+
+test "replaceAllWith literal writes every literal replacement" {
+    var re = try Regex.compile(gpa, "[ ,]+", .{});
+    defer re.deinit();
+
+    const cases = [_]struct {
+        haystack: []const u8,
+        replacement: []const u8,
+        expected: []const u8,
+    }{
+        .{ .haystack = "a, b  c", .replacement = "|", .expected = "a|b|c" },
+        .{ .haystack = ",a,", .replacement = "_", .expected = "_a_" },
+        .{ .haystack = "a, b", .replacement = "", .expected = "ab" },
+        .{ .haystack = "a, b  c", .replacement = "$1", .expected = "a$1b$1c" },
+    };
+
+    var output: std.Io.Writer.Allocating = .init(gpa);
+    defer output.deinit();
+    for (cases) |tc| {
+        output.clearRetainingCapacity();
+        try expect(try re.replaceAllWith(
+            &output.writer,
+            tc.haystack,
+            .{ .literal = tc.replacement },
+        ));
+        try expectEqualStrings(tc.expected, output.written());
+    }
+
+    output.clearRetainingCapacity();
+    try output.writer.writeAll("unchanged");
+    try expect(!try re.replaceAllWith(&output.writer, "abc", .{ .literal = "X" }));
+    try expectEqualStrings("unchanged", output.written());
+
+    var empty = try Regex.compile(gpa, "", .{});
+    defer empty.deinit();
+    output.clearRetainingCapacity();
+    try expect(try empty.replaceAllWith(&output.writer, "ab", .{ .literal = "-" }));
+    try expectEqualStrings("-a-b-", output.written());
+}
+
 test "split iterator" {
     const cases = [_]struct {
         pattern: []const u8,
@@ -358,7 +615,11 @@ test "named capture metadata and lookup" {
 }
 
 test "named captures can be absent in a match" {
-    var re = try Regex.compile(gpa, "(?<letters>[A-Za-z]+)(?:(?<digits>\\d+)|(?<punct>[!?]+))", .{});
+    var re = try Regex.compile(
+        gpa,
+        "(?<letters>[A-Za-z]+)(?:(?<digits>\\d+)|(?<punct>[!?]+))",
+        .{},
+    );
     defer re.deinit();
 
     const cases = [_]struct {
@@ -368,8 +629,20 @@ test "named captures can be absent in a match" {
         digits: ?[]const u8,
         punct: ?[]const u8,
     }{
-        .{ .haystack = "abc123", .full = "abc123", .letters = "abc", .digits = "123", .punct = null },
-        .{ .haystack = "abc!!", .full = "abc!!", .letters = "abc", .digits = null, .punct = "!!" },
+        .{
+            .haystack = "abc123",
+            .full = "abc123",
+            .letters = "abc",
+            .digits = "123",
+            .punct = null,
+        },
+        .{
+            .haystack = "abc!!",
+            .full = "abc!!",
+            .letters = "abc",
+            .digits = null,
+            .punct = "!!",
+        },
     };
 
     for (cases) |tc| {
@@ -592,12 +865,20 @@ test "ignore case option" {
         try expect(!re.match("AB"));
     }
     {
-        var re = try Regex.compile(gpa, "\\A[a-z]+\\z", .{ .syntax = .{ .case_insensitive = true } });
+        var re = try Regex.compile(
+            gpa,
+            "\\A[a-z]+\\z",
+            .{ .syntax = .{ .case_insensitive = true } },
+        );
         defer re.deinit();
         try expect(re.match("AB"));
     }
     {
-        var re = try Regex.compile(gpa, "\\A[0-Z]\\z", .{ .syntax = .{ .case_insensitive = true } });
+        var re = try Regex.compile(
+            gpa,
+            "\\A[0-Z]\\z",
+            .{ .syntax = .{ .case_insensitive = true } },
+        );
         defer re.deinit();
         try expect(re.match("a"));
     }
@@ -607,17 +888,29 @@ test "ignore case option" {
         try expect(re.match("AZ"));
     }
     {
-        var re = try Regex.compile(gpa, "\\A[[:^lower:]]+\\z", .{ .syntax = .{ .case_insensitive = true } });
+        var re = try Regex.compile(
+            gpa,
+            "\\A[[:^lower:]]+\\z",
+            .{ .syntax = .{ .case_insensitive = true } },
+        );
         defer re.deinit();
         try expect(!re.match("AZ"));
     }
     {
-        var re = try Regex.compile(gpa, "\\A\\w+\\z", .{ .syntax = .{ .case_insensitive = true } });
+        var re = try Regex.compile(
+            gpa,
+            "\\A\\w+\\z",
+            .{ .syntax = .{ .case_insensitive = true } },
+        );
         defer re.deinit();
         try expect(re.match("aZ_0"));
     }
     {
-        var re = try Regex.compile(gpa, "\\A\\W+\\z", .{ .syntax = .{ .case_insensitive = true } });
+        var re = try Regex.compile(
+            gpa,
+            "\\A\\W+\\z",
+            .{ .syntax = .{ .case_insensitive = true } },
+        );
         defer re.deinit();
         try expect(re.match("!@"));
         try expect(!re.match("AZ"));
@@ -628,7 +921,11 @@ test "ignore case option" {
         try expect(!re.match("AB"));
     }
     {
-        var re = try Regex.compile(gpa, "\\A[[:lower:]]+\\z", .{ .syntax = .{ .case_insensitive = true } });
+        var re = try Regex.compile(
+            gpa,
+            "\\A[[:lower:]]+\\z",
+            .{ .syntax = .{ .case_insensitive = true } },
+        );
         defer re.deinit();
         try expect(re.match("AB"));
     }

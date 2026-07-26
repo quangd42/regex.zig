@@ -92,6 +92,15 @@ Boundary and adjacent separators produce empty spans. Use `splitN()` to limit th
 number of spans; its final span contains the unsplit remainder. Both iterators also
 provide `nextBytes()` when byte slices are more convenient than offsets.
 
+Use `replace()` to replace the first leftmost match and `replaceAll()` to replace
+every successive non-overlapping match. Replacement references such as `$1`,
+`${name}`, and `$0` expand capture groups; numeric references do not permit
+leading zeros, and `$$` writes a literal dollar sign. Use `replaceWith()` or
+`replaceAllWith()` with `.{ .literal = replacement }` to insert text without
+expansion. `replaceAlloc()` and `replaceAllAlloc()` return caller-owned slices.
+Writer variants return `false`, and allocating variants return `null`, when there
+is no match.
+
 If you need to configure bounds or anchoring, use the corresponding `*In` API with
 `Regex.Input`:
 

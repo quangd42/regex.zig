@@ -13,6 +13,8 @@ pub const CompileOptions = types.CompileOptions;
 pub const Match = types.Match;
 pub const Captures = types.Captures;
 const iterator = @import("iterator.zig");
+const replace_mod = @import("replace.zig");
+pub const Replacer = replace_mod.Replacer;
 
 const Regex = @This();
 prog: *Program,
@@ -184,6 +186,144 @@ pub fn splitN(re: *Regex, haystack: []const u8, limit: usize) SplitNIterator {
 /// The `input.anchored` behavior is the same as for `splitIn`.
 pub fn splitNIn(re: *Regex, input: Input, limit: usize) SplitNIterator {
     return .init(&re.engine, input, limit);
+}
+
+/// Replaces the first leftmost match and writes the complete result to `writer`.
+/// Returns false without writing when there is no match.
+///
+/// `$N`, `${N}`, `$name`, and `${name}` expand capture groups. Missing or
+/// nonparticipating captures expand to empty, `$$` writes a literal `$`, and
+/// malformed references preserve their `$` literally. Numeric references are
+/// `0` or decimal numbers without leading zeros; other identifiers are names.
+pub fn replace(
+    re: *Regex,
+    writer: *std.Io.Writer,
+    haystack: []const u8,
+    replacement: []const u8,
+) std.Io.Writer.Error!bool {
+    return re.replaceWith(writer, haystack, .{ .template = replacement });
+}
+
+/// Replaces the first leftmost match according to `replacer` and writes the
+/// complete result to `writer`. Templates expand capture references while
+/// literals are inserted directly. Returns false without writing on no match.
+pub fn replaceWith(
+    re: *Regex,
+    writer: *std.Io.Writer,
+    haystack: []const u8,
+    replacer: Replacer,
+) std.Io.Writer.Error!bool {
+    switch (replacer) {
+        .template => |template| {
+            if (std.mem.findScalar(u8, template, '$') == null) {
+                return re.replaceWith(writer, haystack, .{ .literal = template });
+            }
+            const captures = re.findCaptures(haystack) orelse return false;
+            const match_info = captures.span();
+            try writer.writeAll(haystack[0..match_info.start]);
+            try replace_mod.writeExpanded(writer, captures, haystack, template);
+            try writer.writeAll(haystack[match_info.end..]);
+        },
+        .literal => |literal| {
+            const match_info = re.find(haystack) orelse return false;
+            try writer.writeAll(haystack[0..match_info.start]);
+            try writer.writeAll(literal);
+            try writer.writeAll(haystack[match_info.end..]);
+        },
+    }
+    return true;
+}
+
+/// Like `replace`, but returns an allocated result.
+/// Returns null when there is no match. The caller owns the returned slice.
+pub fn replaceAlloc(
+    re: *Regex,
+    gpa: Allocator,
+    haystack: []const u8,
+    replacement: []const u8,
+) Allocator.Error!?[]const u8 {
+    var w: std.Io.Writer.Allocating = .init(gpa);
+    defer w.deinit();
+    const replaced = re.replace(&w.writer, haystack, replacement) catch
+        return error.OutOfMemory;
+    if (!replaced) return null;
+    return try w.toOwnedSlice();
+}
+
+/// Replaces every successive non-overlapping match by expanding `replacement`
+/// as described by `replace`, then writes the complete result to `writer`.
+/// Returns false without writing when there are no matches.
+pub fn replaceAll(
+    re: *Regex,
+    writer: *std.Io.Writer,
+    haystack: []const u8,
+    replacement: []const u8,
+) std.Io.Writer.Error!bool {
+    return re.replaceAllWith(writer, haystack, .{ .template = replacement });
+}
+
+/// Replaces every successive non-overlapping match according to `replacer` and
+/// writes the complete result to `writer`. Templates expand capture references
+/// while literals are inserted directly. Returns false without writing on no match.
+pub fn replaceAllWith(
+    re: *Regex,
+    writer: *std.Io.Writer,
+    haystack: []const u8,
+    replacer: Replacer,
+) std.Io.Writer.Error!bool {
+    switch (replacer) {
+        .template => |template| {
+            if (std.mem.findScalar(u8, template, '$') == null) {
+                return re.replaceAllWith(writer, haystack, .{ .literal = template });
+            }
+
+            var it = re.findAllCaptures(haystack);
+            const first = it.next() orelse return false;
+            const first_span = first.span();
+            try writer.writeAll(haystack[0..first_span.start]);
+            try replace_mod.writeExpanded(writer, first, haystack, template);
+
+            var last_end = first_span.end;
+            while (it.next()) |captures| {
+                const match_info = captures.span();
+                try writer.writeAll(haystack[last_end..match_info.start]);
+                try replace_mod.writeExpanded(writer, captures, haystack, template);
+                last_end = match_info.end;
+            }
+            try writer.writeAll(haystack[last_end..]);
+        },
+        .literal => |literal| {
+            var it = re.findAll(haystack);
+            const first = it.next() orelse return false;
+            try writer.writeAll(haystack[0..first.start]);
+            try writer.writeAll(literal);
+
+            var last_end = first.end;
+            while (it.next()) |m| {
+                try writer.writeAll(haystack[last_end..m.start]);
+                try writer.writeAll(literal);
+                last_end = m.end;
+            }
+            try writer.writeAll(haystack[last_end..]);
+        },
+    }
+    return true;
+}
+
+/// Like `replaceAll`, but returns an allocated result.
+/// Returns null when there are no matches. The caller owns the returned slice.
+pub fn replaceAllAlloc(
+    re: *Regex,
+    gpa: Allocator,
+    haystack: []const u8,
+    replacement: []const u8,
+) Allocator.Error!?[]const u8 {
+    var w: std.Io.Writer.Allocating = .init(gpa);
+    defer w.deinit();
+    const replaced = re.replaceAll(&w.writer, haystack, replacement) catch
+        return error.OutOfMemory;
+    if (!replaced) return null;
+    return try w.toOwnedSlice();
 }
 
 const testing = std.testing;
@@ -385,4 +525,58 @@ test "usage: split" {
     try expectEqualStrings("b", iter.next().?.bytes(haystack));
     try expectEqualStrings("c", iter.next().?.bytes(haystack));
     try expectEqual(null, iter.next());
+}
+
+test "usage: replace" {
+    const gpa = testing.allocator;
+    var w: std.Io.Writer.Allocating = .init(gpa);
+    defer w.deinit();
+    const writer = &w.writer;
+
+    {
+        var re: Regex = try .compile(gpa, " ", .{});
+        defer re.deinit();
+
+        {
+            const replaced_once = try re.replace(writer, "a b c d", "X");
+            try testing.expect(replaced_once);
+            try testing.expectEqualStrings("aXb c d", w.written());
+        }
+        {
+            const mb_replaced = try re.replaceAlloc(gpa, "a b c d", "X");
+            const replaced = mb_replaced orelse return error.TestUnexpectedResult;
+            defer gpa.free(replaced);
+            try testing.expectEqualStrings("aXb c d", replaced);
+        }
+        {
+            w.clearRetainingCapacity();
+            const replaced = try re.replaceAll(writer, "a b c d", "X");
+            try testing.expect(replaced);
+            try testing.expectEqualStrings("aXbXcXd", w.written());
+        }
+        {
+            const mb_replaced = try re.replaceAllAlloc(gpa, "a b c d", "X");
+            const replaced = mb_replaced orelse return error.TestUnexpectedResult;
+            defer gpa.free(replaced);
+            try testing.expectEqualStrings("aXbXcXd", replaced);
+        }
+    }
+    {
+        var re: Regex = try .compile(gpa, "^", .{});
+        defer re.deinit();
+        w.clearRetainingCapacity();
+
+        const replaced = try re.replaceAll(writer, "abc", "X");
+        try testing.expect(replaced);
+        try testing.expectEqualStrings("Xabc", w.written());
+    }
+    {
+        var re: Regex = try .compile(gpa, "(\\w+) (\\d+), (?<year>\\d+)", .{});
+        defer re.deinit();
+        w.clearRetainingCapacity();
+
+        const replaced = try re.replace(writer, "July 17, 2026", "$2-$1-${year}");
+        try testing.expect(replaced);
+        try testing.expectEqualStrings("17-July-2026", w.written());
+    }
 }
